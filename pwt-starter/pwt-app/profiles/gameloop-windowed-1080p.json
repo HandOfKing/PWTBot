@@ -1,0 +1,52 @@
+{
+  "_comment": "GameLoop windowed mode, 1920x1080, game area x100-1828 y53-1025. 2v2 helmet positions only — recalibrate for 4v4/6v6/8v8.",
+  "name": "gameloop-windowed-1080p",
+  "resolution": [1920, 1080],
+
+  "feed_box": [100, 215, 760, 480],
+  "row_left_min": 5,
+  "row_left_max": 40,
+
+  "remaining_box": [184, 60, 210, 88],
+
+  "banner_blue_pts": [[770, 75], [805, 110], [760, 100]],
+  "banner_red_pts":  [[1120, 75], [1150, 110], [1160, 100]],
+
+  "score_boxes": {
+    "blue": [772, 66, 808, 116],
+    "red":  [1118, 66, 1156, 116]
+  },
+
+  "helmet_positions": {
+    "2": {
+      "blue": [[666, 76], [710, 76]],
+      "red":  [[1218, 76], [1262, 76]]
+    },
+    "4": {
+      "_comment": "Placeholder — measure from a real 4v4 recording.",
+      "blue": [[620, 76], [655, 76], [690, 76], [725, 76]],
+      "red":  [[1174, 76], [1209, 76], [1244, 76], [1279, 76]]
+    }
+  },
+
+  "scoreboard": {
+    "_comment": "Round-end scoreboard detection and grid. Measure from a real recording.",
+    "trigger_box": [400, 150, 1520, 900],
+    "trigger_brightness_min": 180,
+    "trigger_white_frac_min": 0.15,
+    "name_col":      [430, 700],
+    "stat_cols": {
+      "eliminations": [700, 800],
+      "damage_dealt":  [800, 920]
+    },
+    "row_start_y":    280,
+    "row_height":      48,
+    "max_players":     16
+  },
+
+  "white_thresh": 190,
+  "gray_thresh":   80,
+  "icon_thresh":  0.62,
+  "merge_gap_s":  1.0,
+  "templates_dir": "templates"
+}
