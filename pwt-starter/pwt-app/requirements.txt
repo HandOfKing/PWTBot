@@ -1,8 +1,12 @@
 numpy>=1.26
 opencv-python>=4.9
 openpyxl>=3.1
-# Phase 2-3
-watchdog>=4.0
+# live capture (Windows)
+dxcam>=0.0.5 ; sys_platform == "win32"
+mss>=9.0
+psutil>=5.9
+# Phase 4 UI
 PySide6>=6.6
 # dev
 pytest>=8.0
+# Also needed: Tesseract OCR (UB Mannheim Windows build) on PATH, or set PWT_TESSERACT to tesseract.exe

@@ -156,6 +156,101 @@ def save_match(conn, match, players, rounds=(), events=(), stats=()):
     return mid
 
 
+class LiveMatch:
+    """Writes a match WHILE it is played (live capture). Every call commits, so a crash or a closed
+    laptop keeps everything captured so far; on the next start recover_interrupted() marks it.
+
+        lm = LiveMatch(conn, room_code="26884524", mode="rounds", team_size=8)
+        lm.set_player("TheWolverine", "blue")
+        lm.start_round(1, start_s=2.0)
+        lm.add_event({...})                       # same keys as save_match events
+        lm.end_round(1, end_s=13.46, winner_team="blue", blue_score=1, red_score=0)
+        lm.add_stats([{"ign": ..., "stat_name": "damage_dealt", "value": 200}], round_no=1)
+        lm.add_stats([...], round_no=None)        # end-of-match scoreboard
+        lm.finish()
+    """
+
+    def __init__(self, conn, recorded_at=None, source_file="live", **cols):
+        now = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.conn, self.pid, self.rid, self.round_no = conn, {}, {}, None
+        row = dict(recorded_at=recorded_at or now, source_file=source_file, processed_at=now, status="live", **cols)
+        self.id = conn.execute(f"INSERT INTO matches({','.join(row)}) VALUES ({','.join('?' * len(row))})",
+                               list(row.values())).lastrowid
+        conn.commit()
+
+    def _player(self, ign):
+        if not ign: return None
+        if ign not in self.pid: self.pid[ign] = get_or_create_player(self.conn, ign)
+        return self.pid[ign]
+
+    def set_player(self, ign, team, slot=None, nickname=None):
+        pid = self._player(ign)
+        if nickname: self.conn.execute("UPDATE players SET nickname=COALESCE(nickname, ?) WHERE id=?", (nickname, pid))
+        self.conn.execute("""INSERT INTO match_players(match_id, player_id, team, slot) VALUES (?,?,?,?)
+                             ON CONFLICT(match_id, player_id) DO UPDATE SET team=excluded.team,
+                             slot=COALESCE(excluded.slot, match_players.slot)""", (self.id, pid, team, slot))
+        self.conn.commit()
+
+    def start_round(self, round_no, start_s=None):
+        self.conn.execute("INSERT OR IGNORE INTO rounds(match_id, round_no, start_s) VALUES (?,?,?)",
+                          (self.id, round_no, start_s))
+        self.rid[round_no] = self.conn.execute("SELECT id FROM rounds WHERE match_id=? AND round_no=?",
+                                               (self.id, round_no)).fetchone()["id"]
+        self.round_no = round_no
+        self.conn.commit()
+        return self.rid[round_no]
+
+    def end_round(self, round_no, end_s=None, winner_team=None, result_text=None, blue_score=None, red_score=None):
+        if round_no not in self.rid: self.start_round(round_no)
+        self.conn.execute("""UPDATE rounds SET end_s=?, winner_team=?, result_text=?, blue_score=?, red_score=?
+                             WHERE id=?""", (end_s, winner_team, result_text, blue_score, red_score, self.rid[round_no]))
+        self.conn.commit()
+
+    def add_event(self, e):
+        rn = e.get("round_no", self.round_no)
+        eid = self.conn.execute(
+            "INSERT INTO events(match_id, round_id, true_time_s, feed_time_s, time_source, event_type,"
+            " killer_id, victim_id, killer_raw, victim_raw, weapon, victim_team, confidence, flag, evidence_path)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (self.id, self.rid.get(rn), float(e["true_time_s"]), float(e["feed_time_s"]), e["time_source"],
+             e["event_type"], self._player(e.get("killer")), self._player(e.get("victim")), e.get("killer_raw"),
+             e.get("victim_raw"), e.get("weapon") or None, e.get("victim_team"), e.get("confidence"),
+             e.get("flag") or None, e.get("evidence_path"))).lastrowid
+        self.conn.commit()
+        return eid
+
+    def update_event_time(self, event_id, true_time_s, time_source):
+        """Live alignment can improve a time after the line was saved (e.g. a Remaining drop matched later)."""
+        self.conn.execute("UPDATE events SET true_time_s=?, time_source=? WHERE id=?", (true_time_s, time_source, event_id))
+        self.conn.commit()
+
+    def add_stats(self, stats, round_no=None):
+        """round_no=None -> end-of-match scoreboard."""
+        rid = self.rid.get(round_no) if round_no is not None else None
+        for s in stats:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO scoreboard_stats(match_id, round_id, player_id, stat_name, value, confidence)"
+                " VALUES (?,?,?,?,?,?)",
+                (self.id, rid, self._player(s["ign"]), s["stat_name"], s["value"], s.get("confidence")))
+        self.conn.commit()
+
+    def finish(self, status=None, **cols):
+        c = self.conn
+        flagged = c.execute("SELECT COUNT(*) FROM events WHERE match_id=? AND flag IS NOT NULL", (self.id,)).fetchone()[0]
+        cols.setdefault("rounds_played", c.execute("SELECT COUNT(*) FROM rounds WHERE match_id=?", (self.id,)).fetchone()[0])
+        cols["status"] = status or ("needs_review" if flagged else "processed")
+        cols["processed_at"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        c.execute(f"UPDATE matches SET {', '.join(k + '=?' for k in cols)} WHERE id=?", list(cols.values()) + [self.id])
+        c.commit()
+
+
+def recover_interrupted(conn):
+    """Call at app start: matches still 'live' were cut off (crash, closed app). Keep their data, mark them."""
+    n = conn.execute("UPDATE matches SET status='interrupted' WHERE status='live'").rowcount
+    conn.commit()
+    return n
+
+
 # ---------- queries for the app ----------
 
 def list_matches(conn, date_from=None, date_to=None, player=None):
@@ -189,6 +284,42 @@ def match_detail(conn, match_id):
                LEFT JOIN rounds r ON r.id = s.round_id
                WHERE s.match_id=? ORDER BY r.round_no, p.ign, s.stat_name""", (match_id,)).fetchall(),
     }
+
+
+def rename_player(conn, old, new):
+    """Fix a misread name once: events, scoreboards and match rows move to `new`; `old` becomes an alias so
+    future matches resolve to `new` automatically. Merges if `new` already exists."""
+    src = conn.execute("SELECT id FROM players WHERE ign=?", (old,)).fetchone()
+    if not src: raise KeyError(old)
+    dst = conn.execute("SELECT id FROM players WHERE ign=?", (new,)).fetchone()
+    with conn:
+        if not dst:
+            conn.execute("UPDATE players SET ign=? WHERE id=?", (new, src["id"]))
+            conn.execute("INSERT OR IGNORE INTO player_aliases(player_id, alias) VALUES (?,?)", (src["id"], old))
+            return src["id"]
+        a, b = src["id"], dst["id"]
+        for col in ("killer_id", "victim_id"):
+            conn.execute(f"UPDATE events SET {col}=? WHERE {col}=?", (b, a))
+        conn.execute("UPDATE OR IGNORE scoreboard_stats SET player_id=? WHERE player_id=?", (b, a))
+        conn.execute("UPDATE OR IGNORE match_players SET player_id=? WHERE player_id=?", (b, a))
+        conn.execute("UPDATE player_aliases SET player_id=? WHERE player_id=?", (b, a))
+        conn.execute("DELETE FROM scoreboard_stats WHERE player_id=?", (a,))
+        conn.execute("DELETE FROM match_players WHERE player_id=?", (a,))
+        conn.execute("DELETE FROM players WHERE id=?", (a,))
+        conn.execute("INSERT OR IGNORE INTO player_aliases(player_id, alias) VALUES (?,?)", (b, old))
+    return b
+
+
+def known_names(conn):
+    """Every exact IGN and alias on file: the roster the engine matches feed and scoreboard names against."""
+    return {r[0] for r in conn.execute("SELECT ign FROM players UNION SELECT alias FROM player_aliases")}
+
+
+def canonical(conn, name):
+    """Alias -> its player's IGN (or the name itself)."""
+    r = conn.execute("SELECT p.ign FROM player_aliases a JOIN players p ON p.id=a.player_id WHERE a.alias=?",
+                     (name,)).fetchone()
+    return r[0] if r else name
 
 
 def correct_event(conn, event_id, **fields):

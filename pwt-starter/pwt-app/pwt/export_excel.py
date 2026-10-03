@@ -33,17 +33,19 @@ def _table(ws, headers, rows, start_row=1, flag_col=None, widths=None):
 
 
 EVENT_HEADERS = ["Date & time", "Round", "True time (s)", "True time", "Feed time (s)", "Feed delay (s)",
-                 "Time source", "Type", "Killer", "Weapon", "Victim", "Victim team", "Confidence", "Flag", "Reviewed"]
+                 "Time source", "Type", "Killer", "Weapon", "Victim", "Victim team", "Confidence", "Flag", "Reviewed",
+                 "Evidence image"]
 
 
 def _event_rows(events):
     return [[e["recorded_at"], e["round_no"], e["true_time_s"], _mmss(e["true_time_s"]), e["feed_time_s"],
              e["feed_delay_s"], e["time_source"], e["event_type"], e["killer"], e["weapon"], e["victim"],
-             e["victim_team"], e["confidence"], e["flag"], "yes" if e["reviewed"] else ""] for e in events]
+             e["victim_team"], e["confidence"], e["flag"], "yes" if e["reviewed"] else "", e["evidence_path"]]
+            for e in events]
 
 
 PLAYER_HEADERS = ["Player", "Nickname", "Team", "Eliminations", "Knocks", "Deaths", "Times knocked",
-                  "Damage dealt", "Scoreboard elims", "Check"]
+                  "Revives (inferred, at least)", "Damage dealt", "Scoreboard elims", "Check"]
 
 
 def _player_rows(players):
@@ -52,7 +54,7 @@ def _player_rows(players):
         sb = p["scoreboard_eliminations"]
         check = "" if sb is None else ("OK" if int(sb) == p["eliminations"] else f"feed {p['eliminations']} vs board {int(sb)}")
         rows.append([p["ign"], p["nickname"], p["team"], p["eliminations"], p["knocks"], p["deaths"],
-                     p["times_knocked"], p["damage_dealt"], sb, check])
+                     p["times_knocked"], p["revives_inferred"], p["damage_dealt"], sb, check])
     return rows
 
 
@@ -82,10 +84,21 @@ def export_match(conn, match_id, path):
            [[r["round_no"], r["start_s"], r["end_s"], r["winner_team"], r["result_text"], r["blue_score"],
              r["red_score"]] for r in d["rounds"]])
 
-    ws = wb.create_sheet("Scoreboard")
-    _table(ws, ["Round", "Player", "Stat", "Value", "Confidence"],
-           [[s["round_no"] if s["round_no"] is not None else "match", s["ign"], s["stat_name"], s["value"],
-             s["confidence"]] for s in d["stats"]])
+    # scoreboards pivoted: one row per player per round, one column per stat; plus the match board
+    teams = {p["ign"]: p["team"] for p in d["players"]}
+    piv, stat_names = {}, []
+    for st in d["stats"]:
+        piv.setdefault((st["round_no"], st["ign"]), {})[st["stat_name"]] = st["value"]
+        if st["stat_name"] not in stat_names: stat_names.append(st["stat_name"])
+    order = [c for c in ("eliminations", "damage_dealt", "col_1", "col_2", "col_3", "col_4") if c in stat_names] + \
+            [c for c in stat_names if c not in ("eliminations", "damage_dealt", "col_1", "col_2", "col_3", "col_4")]
+    rnd = sorted(((k, v) for k, v in piv.items() if k[0] is not None), key=lambda kv: (kv[0][0], kv[0][1]))
+    ws = wb.create_sheet("Round scoreboards")
+    _table(ws, ["Round", "Player", "Team"] + order,
+           [[k[0], k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in rnd])
+    mt = sorted(((k, v) for k, v in piv.items() if k[0] is None), key=lambda kv: kv[0][1])
+    ws = wb.create_sheet("Match scoreboard")
+    _table(ws, ["Player", "Team"] + order, [[k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in mt])
     wb.save(path)
     return path
 
@@ -105,12 +118,13 @@ def export_range(conn, path, date_from=None, date_to=None):
 
     ws = wb.create_sheet("Player totals")
     rows = conn.execute(f"""SELECT ign, nickname, COUNT(DISTINCT match_id) AS matches, SUM(eliminations) AS el,
-                                   SUM(knocks) AS kn, SUM(deaths) AS de, SUM(times_knocked) AS tk, SUM(damage_dealt) AS dmg
+                                   SUM(knocks) AS kn, SUM(deaths) AS de, SUM(times_knocked) AS tk,
+                                   SUM(revives_inferred) AS rv, SUM(damage_dealt) AS dmg
                             FROM v_player_match WHERE match_id IN ({marks})
                             GROUP BY player_id ORDER BY el DESC""", ids).fetchall()
-    _table(ws, ["Player", "Nickname", "Matches", "Eliminations", "Knocks", "Deaths", "Times knocked", "Damage dealt",
-                "Elims per death"],
-           [[r["ign"], r["nickname"], r["matches"], r["el"], r["kn"], r["de"], r["tk"], r["dmg"],
+    _table(ws, ["Player", "Nickname", "Matches", "Eliminations", "Knocks", "Deaths", "Times knocked",
+                "Revives (inferred, at least)", "Damage dealt", "Elims per death"],
+           [[r["ign"], r["nickname"], r["matches"], r["el"], r["kn"], r["de"], r["tk"], r["rv"], r["dmg"],
              round(r["el"] / max(r["de"], 1), 2)] for r in rows])
 
     ws = wb.create_sheet("Player per match")

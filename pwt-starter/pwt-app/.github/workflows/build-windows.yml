@@ -1,6 +1,6 @@
 # Builds the portable Windows zip and attaches it to a GitHub Release.
 # Runs when you push a tag like v0.1.0 (git tag v0.1.0 && git push origin v0.1.0), or by hand from the Actions tab.
-# NOTE: template written in Phase 0 and not run yet. It needs app/main.py (the PySide6 entry point) from Phase 3.
+# NOTE: not run yet. It needs app/main.py (the PySide6 entry point, Phase 4/5).
 name: build-windows
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Run tests
-        run: python tests/test_db_export.py
+        run: python tests/run_all.py
 
       - name: Install Tesseract (bundled into the app until OCR is replaced by templates)
         run: choco install tesseract -y --no-progress
@@ -35,8 +35,8 @@ jobs:
         run: >
           pyinstaller --noconfirm --windowed --name PWT
           --add-data "pwt/schema.sql;pwt"
-          --add-data "pwt/pipeline/templates;pwt/pipeline/templates"
-          --add-data "samples/test_clip_events.csv;samples"
+          --add-data "pwt/templates;pwt/templates"
+          --add-data "pwt/profiles;pwt/profiles"
           app/main.py
 
       - name: Bundle Tesseract

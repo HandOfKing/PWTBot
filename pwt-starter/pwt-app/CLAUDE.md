@@ -1,41 +1,47 @@
 # PWT: notes for Claude Code
 
 ## What this is
-- A Windows desktop app that turns OBS recordings of PUBG Mobile WoW custom rooms into match stats.
-- Stats are kill-feed events with true times, round results and scoreboards.
-- They're saved in SQLite, browsable by date/time, and exportable to Excel.
+- A Windows desktop app that watches a PUBG Mobile World of Wonder (WoW) custom room **live**.
+- It captures the GameLoop screen at 12 fps and reads every frame as it arrives: kill feed, Remaining counter, team helmets, round banner, round and match scoreboards.
+- It writes each event to SQLite as it happens. No OBS, no recordings.
+- Matches are browsable by date/time and export to Excel.
 - Ships as a portable zip from GitHub Releases.
-- Full spec: `docs/SPEC.md`. HUD and timing facts: `docs/kill-feed-reference.md`.
 
-## Layout
-- `pwt/pipeline/`: video → events.
-  - `killfeed.py`: feed rows
-  - `counters.py`: Remaining, helmets, alignment
-  - `templates/`: icon masks
-  - This is still prototype code, with hard-coded coordinates for the windowed test clip.
-- `pwt/schema.sql`, `pwt/db.py`: data layer. `save_match()` writes one match in a single transaction.
-- `pwt/ingest.py`: pipeline output → `save_match()` input.
-- `pwt/export_excel.py`: one match, or a date range.
-- `pwt/cli.py`: `python -m pwt where | import-sample | list | export`
-- `tests/`: `python tests/test_db_export.py` (or pytest). Keep these green.
-- `samples/`: test-clip events and example exports. Never commit recordings (*.mkv, *.mp4).
-
-## Commands
-```
-python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
-python tests/test_db_export.py
-python -m pwt import-sample && python -m pwt list && python -m pwt export --match 1 out.xlsx
-```
+**Full instructions: `docs/PWT_BRIEF.md`.** Read it before any work. §12 lists the phases and their acceptance checks.
 
 ## Rules
-- Only read the recorded video. Never touch the game client, its memory, files or network: that breaks the terms of service and risks a ban.
-- Flag low-confidence rows (`events.flag`). Never guess a name or a type.
-- HUD coordinates belong in layout profiles (JSON), not in code. Recalibrate when the layout changes (fullscreen, bigger kill feed, team size).
-- The frame index / 4 fps is the master clock. Eliminations take their true time from Remaining drops, knocks keep the feed time.
-- Schema changes need a migration in `db.init_db` and a bump of `SCHEMA_VERSION`.
-- Target Windows 10/11 and keep the app fully offline. Paths: use `pathlib`, and `db.data_dir()` for data.
-- Keep dependencies small; every dependency adds weight to the PyInstaller bundle.
+- Read pixels only. Never touch the game's memory, files or network.
+- The only input PWT may ever send is the **opt-in auto-scroll** on scoreboards:
+  - only in the `scoreboard` state
+  - F8 kill switch
+  - every action logged
+  - off by default
+  - for the dedicated spectator account only (PUBG Mobile bans macros)
+- Live (screen) and replay (video file) frame sources must feed the **identical** engine. Develop and test on replay.
+- The analyser thread never blocks. OCR and scoreboard reading run on worker threads.
+- Commit each confirmed item to the DB as it happens (`LiveMatch`), so a crash loses nothing.
+- Flag low-confidence rows or cells (`flag` column). Never guess a name, an event type or a number.
+- Read numbers with **digit templates**, not tesseract: it misreads this HUD font ("52" → "2").
+- HUD coordinates live in layout-profile JSON, never in code.
+- Master clock = capture time since match start.
+  - Eliminations take their true time from drops in the **Remaining** counter.
+  - Knocks keep the time their kill-feed line appeared.
+- Schema changes need a migration and a bump of `PRAGMA user_version`.
+- Target Windows 10/11, fully offline. Use `pathlib`. Keep dependencies small, because they all end up in the PyInstaller bundle.
+- Never commit videos (*.mp4, *.mkv). Test recordings live in `clips/`, which is gitignored.
 
-## Current phase
-- Phase 0 is done.
-- Next is Phase 1 (SPEC §8): make the pipeline a library, `process_video(path, profile) -> MatchResult`, with layout profiles, scoreboard reading and round segmentation, then test it on a real full match.
+## Commands (keep these working)
+```
+python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
+pytest -q                                            # or: python tests/run_all.py
+python -m pwt replay clips\Video_Project_7.mp4       # test clip, must reproduce §11 ground truth
+python tools/capture_bench.py --seconds 180          # Phase 1, on the laptop while spectating
+```
+
+## Where things are
+- `pwt/engine/engine.py`: the per-frame engine.
+- `pwt/readers/`: the readers.
+- `pwt/profiles/*.json`: coordinates.
+- `pwt/templates/`: icons and digits. Rebuild them with `tools/cut_templates.py`.
+- `pwt/db.py`: `LiveMatch`, rename/alias.
+- Status and findings: `docs/PWT_BRIEF.md` §12 and §15.

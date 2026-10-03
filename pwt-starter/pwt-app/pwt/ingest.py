@@ -1,79 +1,31 @@
-"""Turn pipeline output into a saved match.
-
-Phase 1: accepts a MatchResult directly from process_video().
-Legacy path: events_from_aligned_csv() + import_test_clip() still work for
-             the test suite (they don't touch the video pipeline).
-"""
+"""Load the old prototype CSV of the test clip into the database (used by the data-layer tests and
+`python -m pwt import-sample`). Live and replay matches are written by pwt.engine instead."""
 import csv
 from .db import save_match
-from .pipeline.types import MatchResult
 
-
-# ── Phase 1: MatchResult → db ─────────────────────────────────────────────────
-
-def save_result(conn, result: MatchResult) -> int:
-    """Persist a MatchResult.  Returns match_id."""
-    return save_match(
-        conn,
-        result.match,
-        result.players,
-        result.rounds,
-        result.events,
-        result.stats,
-    )
-
-
-# ── Legacy: CSV → db (used by import_test_clip and the original prototype) ────
 
 def events_from_aligned_csv(path):
     out = []
     for r in csv.DictReader(open(path, encoding="utf-8")):
-        out.append(dict(
-            true_time_s=float(r["true_time_s"]),
-            feed_time_s=float(r["feed_first_seen_s"]),
-            time_source=r["time_source"],
-            event_type=r["type"],
-            killer=r["killer"] or None,
-            victim=r["victim"] or None,
-            weapon=r["weapon"] or None,
-            victim_team=r["victim_team"] or None,
-            confidence=float(r["name_conf"]) if r["name_conf"] else None,
-            flag=r["flag"] or None,
-        ))
+        out.append(dict(true_time_s=float(r["true_time_s"]), feed_time_s=float(r["feed_first_seen_s"]),
+                        time_source=r["time_source"], event_type=r["type"], killer=r["killer"] or None,
+                        victim=r["victim"] or None, weapon=r["weapon"] or None, victim_team=r["victim_team"] or None,
+                        confidence=float(r["name_conf"]) if r["name_conf"] else None, flag=r["flag"] or None))
     return out
 
 
 def import_test_clip(conn, events_csv):
     """The 21.5 s test clip from 2026-10-01 (round 1 of a 2v2 round-based room)."""
-    players = [
-        dict(ign="TheWolverine", team="blue"),
-        dict(ign="PARAbloodthirs", team="blue"),
-        dict(ign="RGODxEMPEROR", team="red"),
-        dict(ign="Makjets69", team="red"),
-    ]
-    rounds = [dict(round_no=1, start_s=2.0, end_s=13.46, winner_team="blue",
-                   result_text="DRAW", blue_score=1, red_score=0)]
-    board = {
-        "TheWolverine": (2, 200), "PARAbloodthirs": (0, 0),
-        "RGODxEMPEROR": (0, 52),  "Makjets69": (0, 0),
-    }
+    players = [dict(ign="TheWolverine", team="blue"), dict(ign="PARAbloodthirs", team="blue"),
+               dict(ign="RGODxEMPEROR", team="red"), dict(ign="Makjets69", team="red")]
+    rounds = [dict(round_no=1, start_s=2.0, end_s=13.46, winner_team="blue", result_text="DRAW",
+                   blue_score=1, red_score=0)]
+    board = {"TheWolverine": (2, 200), "PARAbloodthirs": (0, 0), "RGODxEMPEROR": (0, 52), "Makjets69": (0, 0)}
     stats = []
     for ign, (el, dmg) in board.items():
-        stats += [
-            dict(ign=ign, round_no=1, stat_name="eliminations", value=el),
-            dict(ign=ign, round_no=1, stat_name="damage_dealt",  value=dmg),
-        ]
-    match = dict(
-        recorded_at="2026-10-01 22:53:00",
-        source_file="Video_Project_7.mp4",
-        duration_s=21.5,
-        room_code="26884524",
-        mode="rounds",
-        team_size=2,
-        rounds_played=1,
-        winner_team="blue",
-        layout_profile="gameloop-windowed-1080p",
-        pipeline_version="0.1-prototype",
-    )
-    return save_match(conn, match, players, rounds,
-                      events_from_aligned_csv(events_csv), stats)
+        stats += [dict(ign=ign, round_no=1, stat_name="eliminations", value=el),
+                  dict(ign=ign, round_no=1, stat_name="damage_dealt", value=dmg)]
+    match = dict(recorded_at="2026-10-01 22:53:00", source_file="Video_Project_7.mp4", duration_s=21.5,
+                 room_code="26884524", mode="rounds", team_size=2, rounds_played=1, winner_team="blue",
+                 layout_profile="gameloop-windowed-1080p", pipeline_version="0.1-prototype")
+    return save_match(conn, match, players, rounds, events_from_aligned_csv(events_csv), stats)

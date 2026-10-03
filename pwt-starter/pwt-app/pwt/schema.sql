@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS matches (
     id               INTEGER PRIMARY KEY,
     recorded_at      TEXT NOT NULL,              -- local date-time 'YYYY-MM-DD HH:MM:SS' (OBS filename, else file time)
     processed_at     TEXT NOT NULL,
-    source_file      TEXT NOT NULL,              -- file name only, e.g. '2026-10-01 22-52-10.mkv'
+    source_file      TEXT NOT NULL,              -- 'live' for live capture, else the file name
     source_deleted   INTEGER NOT NULL DEFAULT 0, -- 1 once the app deleted the video
     duration_s       REAL,
     room_code        TEXT,                       -- WoW "Creation Code" shown on the HUD
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS matches (
     winner_team      TEXT,                       -- 'blue' | 'red' | 'draw'
     layout_profile   TEXT,                       -- calibration profile used
     pipeline_version TEXT,
-    status           TEXT NOT NULL DEFAULT 'processed',  -- processed | needs_review | failed
+    status           TEXT NOT NULL DEFAULT 'processed',  -- live | processed | needs_review | interrupted | failed
     notes            TEXT,
     UNIQUE (source_file, recorded_at)            -- re-importing the same file is a no-op
 );
@@ -111,6 +111,34 @@ LEFT JOIN rounds r   ON r.id = e.round_id
 LEFT JOIN players pk ON pk.id = e.killer_id
 LEFT JOIN players pv ON pv.id = e.victim_id;
 
+-- What happened after each knock, inferred from the feed (Chirag's rule: knocked again = revived).
+-- Ordered by FEED time, because the feed is a first-in-first-out queue, while knocks only have feed time.
+-- Scope = same round (round-based rooms) or whole match (classic, round_id NULL).
+--   revived     : the knocked player shows up alive again first (knocked again, or knocks/kills someone)
+--   eliminated  : their next appearance is their own elimination (could hide a revive followed by a no-knock kill -> revives are a lower bound)
+--   unresolved  : nothing more about them that round (round ended with them knocked, or revived and survived)
+-- A tombstone credit (eliminated_knocked) does NOT prove the killer was alive: it can land while they are knocked.
+CREATE VIEW IF NOT EXISTS v_knock_outcomes AS
+SELECT knock_id, match_id, round_id, victim_id, knocker_id, feed_time_s,
+       CASE WHEN next_alive_feed IS NOT NULL AND (next_elim_feed IS NULL OR next_alive_feed < next_elim_feed) THEN 'revived'
+            WHEN next_elim_feed IS NOT NULL THEN 'eliminated'
+            ELSE 'unresolved' END AS outcome,
+       CASE WHEN next_alive_feed IS NOT NULL AND (next_elim_feed IS NULL OR next_alive_feed < next_elim_feed)
+            THEN next_alive_feed END AS revived_before_feed_s
+FROM (
+  SELECT k.id AS knock_id, k.match_id, k.round_id, k.victim_id, k.killer_id AS knocker_id, k.feed_time_s,
+    (SELECT MIN(e.feed_time_s) FROM events e
+      WHERE e.match_id = k.match_id AND IFNULL(e.round_id, -1) = IFNULL(k.round_id, -1)
+        AND e.feed_time_s > k.feed_time_s AND e.victim_id = k.victim_id
+        AND e.event_type IN ('kill','eliminated_knocked'))                       AS next_elim_feed,
+    (SELECT MIN(e.feed_time_s) FROM events e
+      WHERE e.match_id = k.match_id AND IFNULL(e.round_id, -1) = IFNULL(k.round_id, -1)
+        AND e.feed_time_s > k.feed_time_s AND e.id <> k.id
+        AND ((e.victim_id = k.victim_id AND e.event_type = 'knock')
+             OR (e.killer_id = k.victim_id AND e.event_type IN ('knock','kill'))))  AS next_alive_feed
+  FROM events k WHERE k.event_type = 'knock'
+);
+
 -- Per player per match. "eliminations" = kill + eliminated_knocked credited to the killer.
 CREATE VIEW IF NOT EXISTS v_player_match AS
 SELECT mp.match_id, m.recorded_at, p.id AS player_id, p.ign, p.nickname, mp.team,
@@ -122,6 +150,8 @@ SELECT mp.match_id, m.recorded_at, p.id AS player_id, p.ign, p.nickname, mp.team
       AND e.event_type IN ('kill','eliminated_knocked'))                         AS deaths,
   (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.victim_id = p.id
       AND e.event_type = 'knock')                                                 AS times_knocked,
+  (SELECT COUNT(*) FROM v_knock_outcomes o WHERE o.match_id = mp.match_id AND o.victim_id = p.id
+      AND o.outcome = 'revived')                                                  AS revives_inferred,
   (SELECT SUM(s.value) FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
       AND s.stat_name = 'damage_dealt' AND s.round_id IS NOT NULL)               AS damage_dealt,
   (SELECT SUM(s.value) FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
@@ -134,7 +164,7 @@ CREATE VIEW IF NOT EXISTS v_player_career AS
 SELECT player_id, ign, nickname,
        COUNT(DISTINCT match_id) AS matches,
        SUM(eliminations) AS eliminations, SUM(knocks) AS knocks,
-       SUM(deaths) AS deaths, SUM(times_knocked) AS times_knocked,
+       SUM(deaths) AS deaths, SUM(times_knocked) AS times_knocked, SUM(revives_inferred) AS revives_inferred,
        SUM(damage_dealt) AS damage_dealt,
        ROUND(1.0 * SUM(eliminations) / MAX(SUM(deaths), 1), 2) AS elim_death_ratio
 FROM v_player_match
