@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.spec.bak
+data/
+*.db
+# never commit recordings
+*.mkv
+*.mp4
+*.mov
+clips/
