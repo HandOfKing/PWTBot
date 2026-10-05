@@ -185,5 +185,6 @@
       "settle_ms": 250,
       "note": "placeholder - calibrate on a real 8v8 board"
     }
-  }
+  },
+  "max_align_lag_s": 8.0
 }

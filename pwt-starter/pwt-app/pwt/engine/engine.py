@@ -78,6 +78,7 @@ class Engine:
         self.players_in_room, self.team_size = None, 2
         self.rem = dict(value=None, cand=None, n=0, left_t=None, first=[])
         self.drops, self.helm_deaths, self.helm = [], [], {}
+        self.max_align_lag_s = profile.get("max_align_lag_s", 8.0)
         self.round_info = {}
         self.banner_absent_since = None
         self.team_of, self.events, self.pending = {}, [], []
@@ -182,7 +183,8 @@ class Engine:
         if r["n"] >= 2 and v != r["value"]:
             if v < r["value"]:
                 for _ in range(r["value"] - v):
-                    self.drops.append(dict(t=r["left_t"], team=None, used=False))
+                    self.drops.append(dict(t=r["left_t"], team=None, used=False,
+                                           round=self.round_no))
                 self.log(f"{r['left_t']:7.2f}s  Remaining {r['value']} -> {v}")
             r["value"], r["left_t"] = v, None                   # an increase = new round reset
         elif v == r["value"]:
@@ -267,9 +269,26 @@ class Engine:
                  + (f"  FLAG {flag}" if flag else ""))
 
     def _align(self, rec):
+        """Give an elimination its true time from the matching Remaining drop.
+
+        Two guards, both learned from a real 6v6 recording:
+
+        - **Same round only.** Unused drops pile up when several players die at
+          once (a team wipe drops Remaining by 3 in one frame, but only some of
+          those produce a feed row we could read). Without this, a round-2 row
+          reached back and claimed a round-1 drop 40s earlier.
+        - **Max lag.** The feed trails the event by up to ~3.5s, so a drop far
+          older than the feed line is not that line's drop. Beyond the limit we
+          keep the feed time and flag it, rather than assert a wrong one.
+
+        Team filtering (via helmets) would catch most of this on its own, but
+        helmets are not measured for 6v6 yet, so these guards carry the load.
+        """
         team = self.team_of.get(rec["victim"]) if rec["victim"] else None
         for d in self.drops:
             if d["used"] or d["t"] > rec["feed_t"] + 0.05: continue
+            if d.get("round") is not None and d["round"] != rec.get("round_no", self.round_no): continue
+            if rec["feed_t"] - d["t"] > self.max_align_lag_s: continue
             if team and d["team"] and d["team"] != team: continue
             d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
             rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"

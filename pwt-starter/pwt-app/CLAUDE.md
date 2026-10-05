@@ -60,15 +60,26 @@ works for both.** Recording at a new resolution needs a new profile; `pwt calibr
 intended way to measure one.
 
 ## Known gaps — do not paper over these
-1. **Remaining cannot be read.** tesseract gives `12 → 2`. Until digit templates exist, every
-   elimination falls back to feed time and is flagged. This blocks all true-time work.
-2. **6v6 helmet positions are not measured.** 6v6 draws helmets in two rows, 4 above and 2 below.
-   The profile says so explicitly instead of guessing. Without them, eliminations have no team
-   attribution. The reader returns `{}` and the run continues — it does not crash.
-3. **Weapon templates: only UMP45.** Everything else reads `unknown`, by design: an M416 matches
-   the UMP45 template at 0.70, so a loose threshold invents weapons. AKM, M416 and a headshot
-   crosshair still need cutting.
-4. **Scoreboard digits are unreliable** for the same reason as (1).
+1. **Remaining digit templates are incomplete: 5, 8 and 9 are missing.**
+   `digits_remaining` was harvested from the 2v2 clip, which never went above 4,
+   so it held only {2,3,4}. 0,1,2,4,6,7 have since been harvested from the 6v6
+   recording and Remaining now reads correctly on 84% of frames. The 6v6 clip
+   never showed 5, 8 or 9, so those still need cutting from another recording.
+   Until then a frame showing one reads `None` -- flagged, never wrong.
+2. **6v6 helmet positions are not measured.** 6v6 draws helmets in two rows,
+   4 above and 2 below. The profile says so explicitly instead of guessing.
+   Without them an elimination has no team, so `_align` cannot use its team
+   filter and leans on the round and max-lag guards instead. This is the single
+   biggest remaining accuracy win.
+3. **Weapon templates: only UMP45.** Everything else reads `unknown`, by design:
+   an M416 matches the UMP45 template at 0.70, so a loose threshold invents
+   weapons. AKM, M416 and a headshot crosshair still need cutting.
+4. **The 6v6 scoreboard only captures 6 of 12 rows.** The rest need scrolling,
+   which is out of scope, so reconciliation against the board is partial.
+5. **Character templates for names (`chars_feed/`) do not exist yet.**
+   `chars.py` and `tools/harvest_chars.py` are written and waiting. Finishing
+   them removes the Tesseract dependency, which is what makes a self-contained
+   .exe practical.
 
 ## Where things are
 - `pwt/engine/engine.py`: the per-frame engine.
