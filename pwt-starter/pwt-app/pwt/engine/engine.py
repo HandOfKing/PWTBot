@@ -413,6 +413,52 @@ class Engine:
         self.pending = still
 
     # ------------------------------------------------------------------ end
+    def _emit_unclaimed_drops(self):
+        """A13: a Remaining drop no feed row ever claimed is still an elimination.
+
+        The counter is an independent signal (ARCHITECTURE §3): it sees every
+        death whether or not the kill feed printed a readable line for it. Those
+        drops were being discarded, so a death the game never announced -- four
+        at once in a team collapse, or a row too occluded to read -- vanished
+        from the table with nothing to show it had happened. Measured on
+        Video_Project_9: 14 drops, 8 attributed, 6 silently dropped.
+
+        Emitted with NO killer and NO victim. That is the point. The roster
+        could supply a plausible name and the margin rule would even accept it,
+        but inventing an attribution here would corrupt the per-player counts
+        with kills nobody made -- invariant 1, flag never guess. A row saying
+        "someone on red died at 146.75s and the feed never said who" is
+        information; a guessed name is damage.
+
+        Run after _resolve_pending(final=True) so a late resolution still gets
+        first claim on its drop.
+        """
+        if not self.lm:
+            return
+        n = 0
+        for d in self.drops:
+            if d["used"]:
+                continue
+            t = round(d["t"], 3)
+            rec = dict(feed_t=t, true_t=t, type="kill", weapon=None,
+                       killer=None, victim=None, raw_ocr=None, conf=None,
+                       source="Remaining drop (no feed row)", drop=d)
+            rec["id"] = self.lm.add_event(dict(
+                true_time_s=t, feed_time_s=t,
+                time_source=rec["source"], event_type="kill",
+                killer=None, victim=None, killer_raw=None, victim_raw=None,
+                weapon=None, confidence=None, victim_team=d.get("team"),
+                flag="NO_FEED_ROW", round_no=d.get("round") or self.round_no or None))
+            self.events.append(rec)
+            d["used"] = True
+            n += 1
+            self.log(f"{t:7.2f}s  unattributed elimination"
+                     f"{' (team ' + d['team'] + ')' if d.get('team') else ''}"
+                     f"  FLAG NO_FEED_ROW")
+        if n:
+            self.notes.append(f"{n} elimination(s) seen by the Remaining counter had no "
+                              f"readable feed row and are flagged NO_FEED_ROW")
+
     def finish(self):
         for line in self.tracker.flush(): self._confirm(line)
         if self.state == "SCOREBOARD": self._close_scoreboard(self.last_t)
@@ -421,12 +467,26 @@ class Engine:
         if self.lm is None:
             return dict(match_id=None, frames=self.frames, notes=["no round was detected"])
         self._resolve_pending(final=True)
+        self._emit_unclaimed_drops()
         for rec in self.events:
             for n in (rec["killer"], rec["victim"]):
                 if n: self.lm.set_player(n, self.team_of.get(n, ""))
             if rec["victim"] and self.team_of.get(rec["victim"]):
                 self.conn.execute("UPDATE events SET victim_team=? WHERE id=?", (self.team_of[rec["victim"]], rec["id"]))
         self.conn.commit()
+        # A12: a read that failed is not a box with no text in it. Surface it,
+        # or a broken OCR engine looks exactly like a quiet match.
+        from ..readers import names as _names
+        ns = _names.stats
+        if ns["no_engine"]:
+            self.notes.append(f"NO OCR ENGINE: {ns['no_engine']} name reads returned nothing because "
+                              f"there are no character templates and tesseract was not found - "
+                              f"names in this run are not trustworthy")
+        if ns["launch_error"]:
+            self.notes.append(f"tesseract failed to start on {ns['launch_error']} read(s)")
+        if ns["timeout"]:
+            self.notes.append(f"{ns['timeout']} name read(s) timed out and were lost "
+                              f"(machine under load); rerunning may give a different table")
         self.lm.finish(duration_s=round(self.last_t, 2), team_size=self.team_size,
                        mode="rounds" if self.round_no else None, notes="; ".join(self.notes) or None)
         return dict(match_id=self.lm.id, frames=self.frames, rounds=self.round_no, events=len(self.events),

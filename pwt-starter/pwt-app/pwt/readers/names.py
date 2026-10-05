@@ -56,6 +56,19 @@ def _tesseract_cmd():
 
 _CMD = _tesseract_cmd()
 
+# A12: a failed read is not an empty box. Both were returning "" and becoming
+# indistinguishable from "no text here", so a broken or missing OCR engine made
+# the app report zero kills with no error at all (handoff gap 8.2), and a read
+# that timed out under load silently dropped an elimination -- the same run
+# giving 7 or 8 attributed kills on different days. Counted here and reported
+# at the end of a run; the engine turns a non-zero count into a note.
+stats = dict(calls=0, timeout=0, launch_error=0, no_engine=0)
+
+
+def reset_stats():
+    for k in stats:
+        stats[k] = 0
+
 
 def ocr_mask(mask01):
     """Text from a 0/1 mask of white text (kill-feed names).
@@ -63,11 +76,13 @@ def ocr_mask(mask01):
     Uses CharReader templates (no external dependency).  Falls back to Tesseract
     if templates aren't ready yet and Tesseract is installed.
     """
+    stats["calls"] += 1
     reader = _get_feed_reader()
     if reader.ready:
         return reader.read(mask01)
     if _CMD:
         return _tess_mask(mask01)
+    stats["no_engine"] += 1          # no templates AND no tesseract: reads nothing, always
     return ""
 
 
@@ -120,7 +135,11 @@ def _run(img):
         r = subprocess.run([_CMD, "stdin", "stdout", "--psm", "7"], input=cv2.imencode(".png", img)[1].tobytes(),
                            capture_output=True, timeout=10)
         return r.stdout.decode(errors="ignore").strip()
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        stats["timeout"] += 1               # A12: a lost read, not an empty box
+        return ""
+    except OSError:
+        stats["launch_error"] += 1          # tesseract could not be started at all
         return ""
 
 

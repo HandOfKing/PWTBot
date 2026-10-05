@@ -50,7 +50,7 @@ def _write_csv(conn, mid, out):
     import csv as _csv
     d = db.match_detail(conn, mid)
     cols = ["round_no", "true_time_s", "feed_time_s", "time_source", "killer", "event_type",
-            "weapon", "victim", "flag"]
+            "weapon", "victim", "victim_team", "flag"]
     with open(out, "w", newline="", encoding="utf-8") as fh:
         w = _csv.writer(fh)
         w.writerow(cols)
