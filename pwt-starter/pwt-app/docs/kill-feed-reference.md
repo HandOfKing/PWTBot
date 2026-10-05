@@ -86,9 +86,6 @@ Player names use stylised characters (TheWølverine, RGODxEMPERØR). Fuzzy-match
 
 Reconciliation: the feed gives 2 eliminations for TheWølverine (tombstone + kill), which matches the scoreboard. Knocks are not eliminations.
 
-## Kill feed size
-Chirag found a UI option to make the kill feed bigger (2026-10-01). After changing it, record a short clip in spectate mode to recalibrate the feed box and the icon templates. Bigger is better for OCR, as long as the feed doesn't overlap other HUD elements.
-
 ## Prototype status (killfeed.py v0.1 + counters.py v0.1)
 - 4 fps aligned output for the test clip:
   - The two eliminations get a true time of 13.25 s, from the Remaining drop plus the red helmets.

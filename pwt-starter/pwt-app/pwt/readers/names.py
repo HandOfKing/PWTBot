@@ -2,10 +2,26 @@
 
 Feed names are read by CharReader from binary masks.  Scoreboard names use CharReader on
 Otsu-binarised crops; Tesseract is an optional fallback if installed."""
-import os, shutil, subprocess, difflib, sys
+import os, re, shutil, subprocess, difflib, sys
 from pathlib import Path
 import cv2, numpy as np
 from .chars import CharReader
+
+# ---- A4: confusable glyph folding ----
+# Characters that the feed font (and OCR) regularly confuse are collapsed to the
+# same canonical letter before fuzzy matching.  Both the OCR output and roster
+# names pass through the same fold, so a garbled read like "KGGSESE9" matches
+# "KG696969" after folding.
+CLASSES = [
+    '0oOQDØø', '1lIi|!jJ', '2zZ', '3', '4A', '5sS',
+    '6GgbB8Ee', '79gq', 'TtPF', 'cC', 'nmhM', 'uvUV',
+    'rR', 'wW', 'xX', 'kK', 'aA', 'dD', 'yY', 'L',
+]
+_FOLD = {ch: chr(ord('a') + i) for i, cls in enumerate(CLASSES) for ch in cls}
+
+# ---- A5: match threshold + margin ----
+_MATCH_THRESH = 0.55     # minimum score to accept a roster match
+_MATCH_MARGIN = 0.08     # best must beat second-best by this much
 
 _TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 
@@ -108,7 +124,9 @@ def _run(img):
 
 
 def norm(s):
-    return "".join(ch for ch in (s or "").lower().replace("ø", "o").replace("0", "o") if ch.isalnum())
+    """Fold confusable glyphs, strip non-alnum, lowercase."""
+    s = re.sub(r'[^A-Za-z0-9]', '', s or '')
+    return ''.join(_FOLD.get(c, c.lower()) for c in s)
 
 
 def similar(a, b):
@@ -116,11 +134,40 @@ def similar(a, b):
 
 
 def match(raw, roster):
-    """Best roster name for an OCR string -> (name or None, score 0..1)."""
+    """Best roster name for an OCR string -> (name or None, score 0..1).
+
+    Returns (name, score) only if the best score clears _MATCH_THRESH and
+    beats the second-best by _MATCH_MARGIN (A5).
+    """
     n = norm(raw)
-    if not n or not roster: return None, 0.0
-    sc, name = max((difflib.SequenceMatcher(None, n, norm(r)).ratio(), r) for r in roster)
-    return name, round(sc, 2)
+    if not n or not roster:
+        return None, 0.0
+    scored = sorted(((difflib.SequenceMatcher(None, n, norm(r)).ratio(), r)
+                     for r in roster), reverse=True)
+    best_sc, best_name = scored[0]
+    if best_sc < _MATCH_THRESH:
+        return None, 0.0
+    second_sc = scored[1][0] if len(scored) > 1 else 0.0
+    if best_sc - second_sc < _MATCH_MARGIN:
+        return None, 0.0
+    return best_name, round(best_sc, 2)
+
+
+def check_roster_collisions(roster, log=None):
+    """Warn if any two roster names collapse to the same string under the fold.
+
+    Returns True if the roster is safe (no collisions).
+    """
+    folded = {}
+    for name in roster:
+        n = norm(name)
+        if n in folded:
+            msg = f"Roster collision under fold: {folded[n]!r} and {name!r} both fold to {n!r}"
+            if log:
+                log(msg)
+            return False
+        folded[n] = name
+    return True
 
 
 def consensus(readings):

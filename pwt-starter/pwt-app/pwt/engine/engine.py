@@ -21,8 +21,7 @@ from ..readers.feed import FeedReader, LineTracker
 from ..readers.screens import ScreenReader, ScoreboardStitcher
 
 ELIM_TYPES = ("kill", "eliminated_knocked")
-NAME_OK = 0.75          # roster match needed to accept a feed name outright
-NAME_RESOLVE = 0.60     # roster match accepted when resolving a pending name after a scoreboard
+DEDUPE_WINDOW = 5.0      # A8: collapse same (killer, victim, type) within this many seconds
 
 
 class ScoreboardWorker:
@@ -112,7 +111,7 @@ class Engine:
     def _ensure_match(self):
         if self.lm is None:
             self.lm = db.LiveMatch(self.conn, recorded_at=self.recorded_at, source_file=self.source_file,
-                                   layout_profile=self.p["name"], pipeline_version="0.1-live")
+                                   layout_profile=self.p["name"], pipeline_version="0.2-stageA")
             self.ev_dir = self.data_dir / "evidence" / f"match_{self.lm.id}"
             self.ev_dir.mkdir(parents=True, exist_ok=True)
             self.log(f"match #{self.lm.id} started")
@@ -205,31 +204,53 @@ class Engine:
         for line in self.tracker.update(t, rows):
             self._confirm(line)
 
-    def _vote(self, reads):
-        best = {}
-        for r in reads:
-            n, s = names.match(r, self.known)
-            if n: best[n] = best.get(n, 0) + s
-        if not best: return None, 0.0
-        n = max(best, key=best.get)
-        score = round(max(names.match(r, [n])[1] for r in reads), 2)
-        return db.canonical(self.conn, n), score                      # an alias resolves to the real IGN
-
     def _confirm(self, line):
+        """A3: extract names from full-row OCR via roster token matching.
+        A7: flag UNRESOLVED instead of dropping.
+        A8: dedupe against recent events with the same (killer, victim, type)."""
         lm = self._ensure_match()
-        k_raw, v_raw = names.consensus(line.k_reads), names.consensus(line.v_reads)
-        k, kc = self._vote(line.k_reads)
-        v, vc = self._vote(line.v_reads)
-        k = k if kc >= NAME_OK else None
-        v = v if vc >= NAME_OK else None
-        rec = dict(feed_t=round(line.first_t, 3), true_t=round(line.first_t, 3), type=line.etype, weapon=line.weapon,
-                   killer=k, victim=v, k_reads=list(line.k_reads), v_reads=list(line.v_reads),
-                   conf=min(kc, vc), source="feed (approx)", drop=None)
+        roster = list(self.known) if self.known else []
+        k, kc, v, vc, raw_ocr = line.vote(roster)
+
+        # Canonicalise via aliases
+        if k:
+            k = db.canonical(self.conn, k)
+        if v:
+            v = db.canonical(self.conn, v)
+
+        # A7: always emit, flag if names unresolved
+        if k and v:
+            flag = None
+        elif k or v:
+            flag = "UNRESOLVED"
+        else:
+            flag = "UNRESOLVED"
+
+        conf = round(min(kc, vc) if (k and v) else max(kc, vc), 2)
+
+        # A8: dedupe — skip if same (killer, victim, type) within DEDUPE_WINDOW
+        if k and v:
+            key = (k, v, line.etype)
+            for prev in reversed(self.events):
+                if line.first_t - prev["feed_t"] > DEDUPE_WINDOW:
+                    break
+                if (prev["killer"], prev["victim"], prev["type"]) == key:
+                    self.log(f"{line.first_t:7.2f}s  feed: dedupe skip {k} --{line.etype}--> {v}")
+                    return
+
+        k_raw = k or raw_ocr
+        v_raw = v or raw_ocr
+        rec = dict(feed_t=round(line.first_t, 3), true_t=round(line.first_t, 3),
+                   type=line.etype, weapon=line.weapon,
+                   killer=k, victim=v, raw_ocr=raw_ocr,
+                   conf=conf, source="feed (approx)", drop=None)
         rec["id"] = lm.add_event(dict(
-            true_time_s=rec["true_t"], feed_time_s=rec["feed_t"], time_source=rec["source"], event_type=rec["type"],
-            killer=k, victim=v, killer_raw=k_raw, victim_raw=v_raw, weapon=line.weapon, confidence=rec["conf"],
+            true_time_s=rec["true_t"], feed_time_s=rec["feed_t"], time_source=rec["source"],
+            event_type=rec["type"],
+            killer=k, victim=v, killer_raw=k_raw, victim_raw=v_raw,
+            weapon=line.weapon, confidence=conf,
             victim_team=self.team_of.get(v) if v else None,
-            flag=None if (k and v) else "NAME?", round_no=self.round_no or None))
+            flag=flag, round_no=self.round_no or None))
         if line.best_crop is not None:
             p = self.ev_dir / f"ev_{rec['id']}.png"
             cv2.imwrite(str(p), line.best_crop)
@@ -237,10 +258,13 @@ class Engine:
                               (p.relative_to(self.data_dir).as_posix(), rec["id"]))
             self.conn.commit()
         self.events.append(rec)
-        if not (k and v): self.pending.append(rec)
-        if rec["type"] in ELIM_TYPES: self._align(rec)
-        self.log(f"{line.first_t:7.2f}s  feed: {k or k_raw + '?'} --{rec['type']}/{line.weapon or '-'}--> {v or v_raw + '?'}"
-                 f"   (true {rec['true_t']}s, {rec['source']})")
+        if not (k and v):
+            self.pending.append(rec)
+        if rec["type"] in ELIM_TYPES:
+            self._align(rec)
+        self.log(f"{line.first_t:7.2f}s  feed: {k or '?'} --{rec['type']}/{line.weapon or '-'}--> {v or '?'}"
+                 f"   (true {rec['true_t']}s, {rec['source']})"
+                 + (f"  FLAG {flag}" if flag else ""))
 
     def _align(self, rec):
         team = self.team_of.get(rec["victim"]) if rec["victim"] else None
@@ -313,30 +337,47 @@ class Engine:
         self._resolve_pending()
 
     def _resolve_pending(self, final=False):
+        """Try to resolve pending events now that we have more names from the scoreboard."""
         still = []
+        roster = list(self.known)
         for rec in self.pending:
             upd = {}
-            for role, reads in (("killer", rec["k_reads"]), ("victim", rec["v_reads"])):
-                if rec[role]: continue
-                n, s = self._vote(reads)
-                if n and s >= NAME_RESOLVE:
-                    rec[role] = upd[role] = n
-                    rec.setdefault("scores", {})[role] = s
-                elif final and reads:                       # never matched: keep what was read, flagged
-                    rec[role] = upd[role] = names.consensus(reads)
+            if not rec["killer"] or not rec["victim"]:
+                # Re-parse the raw OCR against the updated roster
+                raw = rec.get("raw_ocr", "")
+                if raw and roster:
+                    import re as _re
+                    tokens = _re.split(r'\s+', raw)
+                    hits = []
+                    for tok in tokens:
+                        t = _re.sub(r'[^A-Za-z0-9]', '', tok)
+                        if len(t) < 4:
+                            continue
+                        n, sc = names.match(t, roster)
+                        if n:
+                            hits.append((n, sc))
+                    if len(hits) >= 2 and hits[0][0] != hits[-1][0]:
+                        if not rec["killer"]:
+                            rec["killer"] = upd["killer"] = db.canonical(self.conn, hits[0][0])
+                        if not rec["victim"]:
+                            rec["victim"] = upd["victim"] = db.canonical(self.conn, hits[-1][0])
+                    elif len(hits) == 1 and final:
+                        # Only one name found; assign it to whichever role is missing
+                        resolved_name = db.canonical(self.conn, hits[0][0])
+                        if not rec["killer"]:
+                            rec["killer"] = upd["killer"] = resolved_name
+                        elif not rec["victim"]:
+                            rec["victim"] = upd["victim"] = resolved_name
             if upd:
-                resolved = all(names.match(r, [rec[role]])[1] >= NAME_RESOLVE
-                               for role, rs in (("killer", rec["k_reads"]), ("victim", rec["v_reads"]))
-                               for r in rs[:1]) and rec["killer"] and rec["victim"]
+                resolved = rec["killer"] and rec["victim"]
                 db.correct_event(self.conn, rec["id"], **upd)
-                sc = rec.get("scores", {})
-                conf = min([sc.get("killer", rec["conf"] or 1.0), sc.get("victim", rec["conf"] or 1.0)])
-                self.conn.execute("UPDATE events SET reviewed=0, flag=?, confidence=? WHERE id=?",
-                                  (None if resolved else "NAME?", round(conf, 2), rec["id"]))
+                self.conn.execute("UPDATE events SET reviewed=0, flag=? WHERE id=?",
+                                  (None if resolved else "UNRESOLVED", rec["id"]))
                 self.conn.commit()
                 if rec.get("drop") and rec["drop"]["team"] and rec["victim"]:
                     self.team_of.setdefault(rec["victim"], rec["drop"]["team"])
-            if not (rec["killer"] and rec["victim"]): still.append(rec)
+            if not (rec["killer"] and rec["victim"]):
+                still.append(rec)
         self.pending = still
 
     # ------------------------------------------------------------------ end

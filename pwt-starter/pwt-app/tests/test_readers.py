@@ -59,4 +59,4 @@ def test_scoreboard_rows_names_and_teams():
 def test_feed_row_grammar():
     rows = FeedReader(P).rows(img("live_knock_row"))
     assert [(r.etype, r.weapon) for r in rows] == [("knock", "UMP45")]
-    assert rows[0].k_span[1] - rows[0].k_span[0] > 40 and rows[0].v_span[1] - rows[0].v_span[0] > 40
+    assert rows[0].row_mask is not None and rows[0].row_mask.shape[0] > 5

@@ -492,39 +492,9 @@ Example: the windowed test-clip profile. Make a new one for fullscreen with the 
 - **Date range:** Matches, Player totals, Player per match, All events.
 - **Formatting:** bold dark header row, frozen panes, auto-filter, sensible widths, flagged rows yellow.
 
-## 9. UI (PySide6, Phase 4)
-1. **Live:**
-   - Start/Stop
-   - capture health (fps achieved, drops, CPU)
-   - state and round
-   - rolling event list
-   - scoreboard progress + overlay
-2. **Matches:** newest first; filter by date range and player; Open, Export selected, Export range, Delete.
-3. **Match detail**, with tabs:
-   - Players
-   - Events (flagged rows yellow; click to see the evidence image and fix)
-   - Rounds
-   - Scoreboards (per round + match)
-   - Export
-4. **Players:** nicknames, aliases, merge two players, career totals.
-5. **Settings:**
-   - profile + calibration
-   - scroll-assist mode (with the warning) and kill-switch key
-   - data folder, export folder
-   - a developer "Replay a file" entry
-
-## 10. Packaging
-- PyInstaller **one-folder**, then zip it: `PWT-<version>-windows.zip`, built by GitHub Actions on a `windows-latest` runner when a `v*` tag is pushed, and attached to a Release.
-- Include in the bundle:
-  - `schema.sql` and `templates/`
-  - Tesseract, until names move to templates (e.g. `choco install tesseract` on the runner, copied into `dist/PWT/vendor/tesseract`)
-- Request admin rights if GameLoop runs elevated.
-- Unsigned, so SmartScreen warns once; that's fine for the group.
-- `requirements.txt`: numpy, opencv-python, openpyxl, dxcam (Windows), mss, psutil, PySide6, pytest. Plus Tesseract (UB Mannheim build) installed on the dev PC.
-
 ---
 
-## 11. Test clip ground truth (`clips/Video_Project_7.mp4`)
+## 9. Test clip ground truth (`clips/Video_Project_7.mp4`)
 Roster:
 
 | Team | Player (ASCII) | On screen |
@@ -581,9 +551,7 @@ Cut 4 frames as test fixtures: live with the knock row (12.9 s), dimmed (17.0 s)
 | **1 Laptop capture test** | `tools/capture_bench.py`: dxcam at 12 fps for 3 min while Chirag spectates; runs the per-frame workload; reports achieved fps, late frames, analysis ms (mean/p95), CPU%, RAM, black frames; saves a full frame every 10 s and the first frame of each scoreboard (for calibration); times how long each scoreboard stays up. | ≥ 11.4 fps, < 1% late frames, analysis p95 < 42 ms, no black frames, no visible game stutter. Chirag also checks by hand whether the **mouse wheel** or only **drag** scrolls a scoreboard. |
 | **2 Engine on replay** | Profile JSON + calibration tool (fullscreen, bigger feed); engine threads; state machine; Remaining by digits; line tracking; alignment; scoreboard worker + stitcher (round + match); evidence; LiveMatch writes. Run on Chirag's full 2 GB match in `clips/`. | Every round detected; at least 95% of feed eliminations reconcile with the round scoreboards; match scoreboard captured; faster than real time. Report all flagged rows with evidence paths. |
 | **3 Live** | `python -m pwt live` with LiveScreenSource; Prompt scroll assist; then Auto-scroll behind the setting (rules in §4.5). | A full real match lands in the DB with every round board and the match board |
-| **4 UI** | PySide6 screens (§9) with the engine in its own thread | A non-developer can run a live match, review, fix and export |
-| **5 Release** | `app/main.py`, PyInstaller, GitHub Actions zip, admin manifest if needed | A clean Windows account: unzip, run, replay the test clip |
-| 6 (optional) | Shared results: Google Sheet sync or a shared DB file | Friends see stats without the app |
+| 4 (optional) | Shared results: Google Sheet sync or a shared DB file | Friends see stats without the app |
 
 ## 13. Open questions (answer them in Phases 1–2 and update this file)
 - How long are the round and match scoreboards up in 8v8? Does the mouse wheel scroll them, or only a drag?
@@ -622,7 +590,7 @@ Report rounds found, events per round, reconciliation vs the round scoreboards, 
 Update §3 and §13 of docs/PWT_BRIEF.md with anything new you learn.
 ```
 
-**Phase 3, 4, 5:** "Do Phase N of docs/PWT_BRIEF.md §12; follow its rules; show me the done-when results."
+**Phase 3:** "Do Phase 3 of docs/PWT_BRIEF.md §12; follow its rules; show me the done-when results."
 
 
 ---

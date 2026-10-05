@@ -126,11 +126,11 @@ class CharReader:
 
     # ---- glyph segmentation ----
 
-    def glyphs(self, mask01):
+    def _components(self, mask01):
         """Connected components from a 0/1 binary mask, sorted left-to-right.
 
         Merges dots above stems (for 'i', 'j', '!') and filters icon remnants.
-        Returns list of glyph images (uint8 0/255).
+        Returns list of dicts with keys x, y, w, h plus the cropped glyph image.
         """
         m = (mask01 * 255).astype(np.uint8) if mask01.max() <= 1 else mask01
         n, labels, stats, _ = cv2.connectedComponentsWithStats(m, 8)
@@ -176,7 +176,13 @@ class CharReader:
                 and c["h"] <= median_h * 2.2]                    # reject tall outliers
 
         keep.sort(key=lambda c: c["x"])
-        return [m[c["y"]:c["y"] + c["h"], c["x"]:c["x"] + c["w"]] for c in keep]
+        for c in keep:
+            c["img"] = m[c["y"]:c["y"] + c["h"], c["x"]:c["x"] + c["w"]]
+        return keep
+
+    def glyphs(self, mask01):
+        """Backward-compatible: returns list of glyph images only."""
+        return [c["img"] for c in self._components(mask01)]
 
     # ---- classification ----
 
@@ -210,15 +216,24 @@ class CharReader:
         best_c = max(char_best, key=char_best.get)
         return best_c, char_best[best_c]
 
-    def read(self, mask01):
-        """Read a player name from a binary mask.  Returns the string."""
-        gs = self.glyphs(mask01)
-        if not gs or not self.templates:
+    def read(self, mask01, gap_px=10):
+        """Read text from a binary mask.  Returns the string.
+
+        Inserts a space when the gap between consecutive glyphs exceeds
+        *gap_px* pixels, so full-row OCR produces "killer icons victim"
+        as separate tokens.
+        """
+        comps = self._components(mask01)
+        if not comps or not self.templates:
             return ""
         parts = []
-        for g in gs:
-            ch, sc = self.classify(g)
+        prev_right = None
+        for c in comps:
+            if prev_right is not None and c["x"] - prev_right > gap_px:
+                parts.append(" ")
+            ch, sc = self.classify(c["img"])
             parts.append(ch if sc >= self.min_score else "?")
+            prev_right = c["x"] + c["w"]
         return "".join(parts)
 
     # ---- harvesting ----
