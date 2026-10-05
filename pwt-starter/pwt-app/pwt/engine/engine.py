@@ -221,10 +221,15 @@ class Engine:
             v = db.canonical(self.conn, v)
 
         # A7: always emit, flag if names unresolved
-        if k and v:
-            flag = None
-        elif k or v:
+        if k and v and k == v:
+            # A player cannot kill themselves in this mode. feed.vote() screens
+            # this out when both names come from one reading, but a name can
+            # also arrive later via _resolve_pending, so re-check here. Seen for
+            # real on a 720p re-encode: "InnocentDevil --kill--> InnocentDevil",
+            # emitted unflagged. Never ship a self-kill as fact.
             flag = "UNRESOLVED"
+        elif k and v:
+            flag = None
         else:
             flag = "UNRESOLVED"
 
@@ -381,14 +386,22 @@ class Engine:
                         if not rec["victim"]:
                             rec["victim"] = upd["victim"] = db.canonical(self.conn, hits[-1][0])
                     elif len(hits) == 1 and final:
-                        # Only one name found; assign it to whichever role is missing
+                        # Only one name found; assign it to whichever role is
+                        # missing -- but NEVER if that would make the killer and
+                        # the victim the same player. Seen for real: a row with
+                        # killer=InnocentDevil and no victim became
+                        # "InnocentDevil --kill--> InnocentDevil", and because
+                        # both fields were then populated the UNRESOLVED flag was
+                        # cleared. A self-kill is impossible here, so one name is
+                        # evidence of half a row, not of a complete one.
                         resolved_name = db.canonical(self.conn, hits[0][0])
-                        if not rec["killer"]:
+                        if not rec["killer"] and rec["victim"] != resolved_name:
                             rec["killer"] = upd["killer"] = resolved_name
-                        elif not rec["victim"]:
+                        elif not rec["victim"] and rec["killer"] != resolved_name:
                             rec["victim"] = upd["victim"] = resolved_name
             if upd:
-                resolved = rec["killer"] and rec["victim"]
+                resolved = (rec["killer"] and rec["victim"]
+                            and rec["killer"] != rec["victim"])
                 db.correct_event(self.conn, rec["id"], **upd)
                 self.conn.execute("UPDATE events SET reviewed=0, flag=? WHERE id=?",
                                   (None if resolved else "UNRESOLVED", rec["id"]))
