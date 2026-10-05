@@ -2,7 +2,7 @@
 
 Feed names are read by CharReader from binary masks.  Scoreboard names use CharReader on
 Otsu-binarised crops; Tesseract is an optional fallback if installed."""
-import os, re, shutil, subprocess, difflib, sys
+import os, re, shutil, subprocess, difflib, sys, unicodedata
 from pathlib import Path
 import cv2, numpy as np
 from .chars import CharReader
@@ -123,9 +123,36 @@ def _run(img):
         return ""
 
 
+# Stylised letters PUBG players use that Unicode normalisation does NOT undo.
+# Without these a name made of them strips to an empty string and matches nothing.
+_TRANSLIT = str.maketrans({
+    **{c: 'O' for c in 'ØøΟОѲ'}, **{c: 'A' for c in 'ΛΔ∆АΑ'},
+    **{c: 'D' for c in 'ÐĐƉ'},   **{c: 'E' for c in 'ΕЕЄ€Ξ'},
+    **{c: 'B' for c in 'ΒВβ'},   **{c: 'P' for c in 'ΡР'},
+    **{c: 'C' for c in 'СϹ¢'},   **{c: 'K' for c in 'ΚКκ'},
+    **{c: 'M' for c in 'ΜМ'},    **{c: 'H' for c in 'ΗН'},
+    **{c: 'T' for c in 'ΤТ'},    **{c: 'N' for c in 'Ν'},
+    **{c: 'X' for c in 'ΧХ'},    **{c: 'Y' for c in 'ΥУ'},
+    **{c: 'I' for c in 'ΙІ|'},   **{c: 'S' for c in 'Ѕ$'},
+    **{c: 'Z' for c in 'Ζ'},     **{c: 'U' for c in 'Ս'},
+    **{c: 'R' for c in 'Ʀ'},     **{c: 'G' for c in 'Ɠ'},
+    **{c: 'L' for c in 'Ⅼ'},     **{c: 'F' for c in 'Ϝ'},
+    # small-capitals block, used a lot in stylised tags
+    **dict(zip('ᴀᴃᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘʀꜱᴛᴜᴠᴡʏᴢ', 'ABCDEFGHIJKLMNOPRSTUVWYZ')),
+})
+
+
 def norm(s):
-    """Fold confusable glyphs, strip non-alnum, lowercase."""
-    s = re.sub(r'[^A-Za-z0-9]', '', s or '')
+    """Fold confusable glyphs, strip non-alnum, lowercase.
+
+    The roster is written in plain English; the in-game name may be stylised
+    (RGODxEMPERØR, ＴｈｅＷｏｌｖｅｒｉｎｅ, ᴛʜᴇᴡᴏʟᴠᴇʀɪɴᴇ). Normalise toward plain ASCII
+    FIRST -- NFKC handles fullwidth, math-bold and superscripts, _TRANSLIT the
+    rest -- because the non-alnum strip below would otherwise delete those
+    letters outright and leave an empty string that matches nothing.
+    """
+    s = unicodedata.normalize('NFKC', s or '').translate(_TRANSLIT)
+    s = re.sub(r'[^A-Za-z0-9]', '', s)
     return ''.join(_FOLD.get(c, c.lower()) for c in s)
 
 

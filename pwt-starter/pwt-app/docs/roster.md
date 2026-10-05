@@ -26,6 +26,27 @@ matcher refuse both. Copy these exactly.
 | 17 | `BruceWayne³` | superscript `³`; stripped before matching, compares as `BruceWayne` |
 | 18 | `WonderWoman888` | full `Woman` |
 
+## Write the names in plain English
+The list above is the **reference spelling**, not necessarily the exact in-game
+one. PUBG names are often stylised — `RGODxEMPERØR`, `ＴｈｅＷｏｌｖｅｒｉｎｅ`,
+`ᴛʜᴇᴡᴏʟᴠᴇʀɪɴᴇ`, `彡TheWolverine彡`. `names.norm()` normalises toward plain ASCII
+before matching (NFKC for fullwidth / math-bold / superscripts, an explicit
+transliteration table for `Ø`, Greek and Cyrillic lookalikes, and the
+small-capitals block), so every one of those resolves to the plain entry:
+
+| in-game form | matches | score |
+|---|---|---|
+| `RGODxEMPERØR` | RGODxEMPEROR | 1.00 |
+| `ＴｈｅＷｏｌｖｅｒｉｎｅ` | TheWolverine | 1.00 |
+| `ᴛʜᴇᴡᴏʟᴠᴇʀɪɴᴇ` | TheWolverine | 0.75 |
+| `𝐒𝐭𝐫𝐢𝐤𝐞𝟑𝟑𝟑` | Strike333 | 1.00 |
+| `彡TheWolverine彡` | TheWolverine | 1.00 |
+| `ＫＧ６９６９６９` | KG696969 | 1.00 |
+
+So: **write the plain-English spelling and let the matcher do the rest.** Do not
+try to reproduce the decoration — a roster entry made entirely of stylised
+letters would be stripped to nothing and match no one.
+
 ## Verified safe
 `names.check_roster_collisions` passes: all 18 fold to distinct strings. The
 closest pair is `PARABloodthirs` vs `StarJohnnysins` at 0.57, well under the
