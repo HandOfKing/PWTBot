@@ -68,6 +68,10 @@ def main(argv=None):
     s.add_argument("--csv", help="also write the events table to this CSV")
     s.add_argument("--profile", default="gameloop-windowed-1080p"); s.add_argument("--roster", nargs="*", default=[])
     s.add_argument("--recorded-at"); s.add_argument("--realtime", action="store_true"); s.add_argument("--quiet", action="store_true")
+    s.add_argument("--team-size", type=int, default=6, help="players per team, for the helmet check")
+    s.add_argument("--force", action="store_true",
+                   help="run even if the profile does not fit the footage (every row suspect)")
+    s.add_argument("--skip-hud-check", action="store_true", help=argparse.SUPPRESS)
     s = sub.add_parser("live"); s.add_argument("--fps", type=float, default=12); s.add_argument("--seconds", type=float)
     s.add_argument("--profile", default="gameloop-windowed-1080p"); s.add_argument("--roster", nargs="*", default=[])
     s = sub.add_parser("show"); s.add_argument("match_id", type=int)
@@ -92,6 +96,21 @@ def main(argv=None):
         prof = profiles.load(a.profile)
         log = (lambda *x: None) if getattr(a, "quiet", False) else print
         if a.cmd == "replay":
+            # Stage 0 (ARCHITECTURE.md §3): does this profile fit this footage?
+            # Invariant 8 -- mismatched input must fail loudly. Without this the
+            # run completes and emits plausible, wrong data (gap 8.5).
+            if not a.skip_hud_check:
+                from .readers import hud
+                roster = list(a.roster) or [r["ign"] for r in
+                                            conn.execute("SELECT ign FROM players ORDER BY ign")]
+                chk = hud.check(prof, a.file, team_size=a.team_size, roster=roster)
+                if not chk.ok or not getattr(a, "quiet", False):
+                    print(chk.report())
+                if not chk.ok and not a.force:
+                    print("\nRefusing to run. Use --force to override.")
+                    return 2
+                if not chk.ok:
+                    print("\n--force given: continuing. Treat every row as suspect.")
             src = FileReplaySource(a.file, fps=a.fps, realtime=a.realtime)
             rec = a.recorded_at or db.recorded_at_from_file(a.file)
             eng = Engine(prof, conn, roster=a.roster, source_file=Path(a.file).name, recorded_at=rec, log=log)

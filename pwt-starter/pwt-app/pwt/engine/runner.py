@@ -4,7 +4,12 @@ Live sources drop the OLDEST frame when the analyser falls behind (and count it)
 import queue, threading, time
 
 
-def run(source, engine, max_queue=24, stop_event=None):
+def run(source, engine, max_queue=24, stop_event=None, on_frame=None):
+    """Capture thread -> queue -> engine.
+
+    *on_frame(n, t)* is called after each processed frame, for a progress bar.
+    It must be cheap and must not raise; it runs on the analyser thread.
+    """
     q = queue.Queue(maxsize=max_queue)
     stats = dict(frames=0, dropped=0)
 
@@ -32,6 +37,9 @@ def run(source, engine, max_queue=24, stop_event=None):
         if item is None: break
         engine.process(*item)
         stats["frames"] += 1
+        if on_frame is not None:
+            on_frame(stats["frames"], item[0])
+        if stop_event is not None and stop_event.is_set(): break
     summary = engine.finish()
     summary.update(stats, wall_s=round(time.perf_counter() - t0, 1))
     return summary
