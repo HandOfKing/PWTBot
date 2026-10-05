@@ -13,10 +13,11 @@ pip install -r requirements.txt
 Tesseract must be on PATH. Check with `tesseract --version`. If it isn't:
 `winget install UB-Mantiainen.Tesseract-OCR` (or the UB Mannheim installer), then reopen the terminal.
 
-Save the roster once so you don't retype it:
+Save the roster once so you don't retype it. **Use the exact spellings in
+`docs/roster.md`** — a wrong one silently costs you rows:
 
 ```
-python -m pwt players --add KhajwaKILL3R BruceWayne3 RGODxEMPERØR Makjets69 TheWolverine TrishaSingh Sarthakkkd KG696969 innocentdevil7 PARAbloodthirs WonderWoma888 OmkarKurhade
+python -m pwt players --add Sarthakkkd RGODxEMPEROR KG696969 KhajwaKILL3R PARABloodthirs OmkarKurhade TheWolverine Strike333 DeathwishツSpy Makjets69 StarJohnnysins Vatsal099999 InnocentDevil enriquelatin Anoydyne15op TrishaSingh BruceWayne³ WonderWoman888
 ```
 
 Check it works at all:
@@ -34,7 +35,6 @@ All tests should pass. Two `test_replay_clip` tests skip unless `clips\Video_Pro
 ```
 python -m pwt replay "D:\OBS\match.mkv" ^
   --profile gameloop-spectator-6v6-1080p ^
-  --roster KhajwaKILL3R BruceWayne3 RGODxEMPERØR Makjets69 TheWolverine TrishaSingh Sarthakkkd KG696969 innocentdevil7 PARAbloodthirs WonderWoma888 OmkarKurhade ^
   --csv events.csv
 ```
 
