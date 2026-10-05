@@ -45,12 +45,27 @@ def _print_match(conn, mid):
             print(f"  {ign:>16}  " + "  ".join(f"{k}={v[k]}" for k in sorted(v)))
 
 
+def _write_csv(conn, mid, out):
+    """Flat events table: one row per knock/kill, true time first."""
+    import csv as _csv
+    d = db.match_detail(conn, mid)
+    cols = ["round_no", "true_time_s", "feed_time_s", "time_source", "killer", "event_type",
+            "weapon", "victim", "flag"]
+    with open(out, "w", newline="", encoding="utf-8") as fh:
+        w = _csv.writer(fh)
+        w.writerow(cols)
+        for e in d["events"]:
+            w.writerow([e[c] if c in e.keys() else "" for c in cols])
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="pwt")
     ap.add_argument("--db", help="database file (default: app data folder)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("where")
-    s = sub.add_parser("replay"); s.add_argument("file"); s.add_argument("--fps", type=float, default=12)
+    s = sub.add_parser("replay"); s.add_argument("file"); s.add_argument("--fps", type=float, default=4)
+    s.add_argument("--csv", help="also write the events table to this CSV")
     s.add_argument("--profile", default="gameloop-windowed-1080p"); s.add_argument("--roster", nargs="*", default=[])
     s.add_argument("--recorded-at"); s.add_argument("--realtime", action="store_true"); s.add_argument("--quiet", action="store_true")
     s = sub.add_parser("live"); s.add_argument("--fps", type=float, default=12); s.add_argument("--seconds", type=float)
@@ -94,7 +109,10 @@ def main(argv=None):
             except KeyboardInterrupt:
                 src.stop(); summary = eng.finish()
         print("\nSummary:", summary)
-        if summary.get("match_id"): _print_match(conn, summary["match_id"])
+        if summary.get("match_id"):
+            _print_match(conn, summary["match_id"])
+            if getattr(a, "csv", None):
+                print("wrote", _write_csv(conn, summary["match_id"], a.csv))
     elif a.cmd == "show":
         _print_match(conn, a.match_id)
     elif a.cmd == "players":

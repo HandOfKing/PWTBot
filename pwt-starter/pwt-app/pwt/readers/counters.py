@@ -39,7 +39,23 @@ class CounterReader:
         return "alive" if v > self.alive else ("dead" if v > self.dead else None)
 
     def helmets(self, im, team_size):
-        pos = self.p.helmets(team_size)
+        """Per-slot helmet state, or {} when this profile has no measured
+        positions for this team size.
+
+        Helmets give an elimination its TEAM. Without them the kill feed still
+        reads and events still land -- they just fall back to feed time and get
+        flagged. Guessing coordinates would silently mis-assign teams, and
+        refusing to run at all would make the feed useless, so neither.
+        """
+        try:
+            pos = self.p.helmets(team_size)
+        except KeyError as e:
+            if not getattr(self, "_helmet_warned", False):
+                self._helmet_warned = True
+                print(f"   NOTE: {e.args[0]}\n"
+                      f"         Continuing without helmets: eliminations keep feed time "
+                      f"and are flagged NO_HELMETS.")
+            return {}
         return {team: [self.helmet_state(im, x, y) for x, y in pts] for team, pts in pos.items()}
 
     def scores(self, im):
