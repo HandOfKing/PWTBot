@@ -35,7 +35,7 @@ def _print_match(conn, mid):
         sb = p["scoreboard_eliminations"]
         ok = "" if sb is None else ("OK" if int(sb) == p["eliminations"] else f"MISMATCH board {int(sb)}")
         print(f"  {p['ign']:>16} {p['team'] or '?':<5} elims {p['eliminations']}  knocks {p['knocks']}  deaths {p['deaths']}"
-              f"  knocked {p['times_knocked']}  revives≥{p['revives_inferred']}  dmg {p['damage_dealt']}  {ok}")
+              f"  knocked {p['times_knocked']}  revives>={p['revives_inferred']}  dmg {p['damage_dealt']}  {ok}")
     by_round = {}
     for s in d["stats"]:
         by_round.setdefault(s["round_no"], {}).setdefault(s["ign"], {})[s["stat_name"]] = s["value"]

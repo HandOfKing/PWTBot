@@ -10,6 +10,8 @@ CLIP = ROOT / "clips" / "Video_Project_7.mp4"
 
 def has_tesseract():
     from pwt.readers.names import _CMD
+    if _CMD is None:
+        return False
     return shutil.which(_CMD) is not None or Path(_CMD).exists()
 
 

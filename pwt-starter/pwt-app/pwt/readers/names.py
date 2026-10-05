@@ -1,44 +1,104 @@
-"""Player names: tesseract on a clean binary crop, then fuzzy roster matching (brief §5.2).
-Raw OCR of the stylised names is rough ('TheWalverine', 'Makpets6d'); never trust it unmatched."""
+"""Player names: character templates (no external dependencies), then fuzzy roster matching (brief §5.2).
+
+Feed names are read by CharReader from binary masks.  Scoreboard names use CharReader on
+Otsu-binarised crops; Tesseract is an optional fallback if installed."""
 import os, shutil, subprocess, difflib, sys
 from pathlib import Path
 import cv2, numpy as np
+from .chars import CharReader
+
+_TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
+
+# ---- lazy singletons ----
+
+_feed_reader = None
+_board_reader = None
 
 
-def tesseract_cmd():
-    """PWT_TESSERACT env var, a bundled vendor/tesseract next to the exe, or tesseract on PATH."""
+def _get_feed_reader():
+    global _feed_reader
+    if _feed_reader is None:
+        _feed_reader = CharReader(_TEMPLATES / "chars_feed")
+    return _feed_reader
+
+
+def _get_board_reader():
+    global _board_reader
+    if _board_reader is None:
+        _board_reader = CharReader(_TEMPLATES / "chars_board", min_score=0.50, min_h=8)
+    return _board_reader
+
+
+def _tesseract_cmd():
     if os.environ.get("PWT_TESSERACT"): return os.environ["PWT_TESSERACT"]
     base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
     for p in (base / "vendor" / "tesseract" / "tesseract.exe", base / "vendor" / "tesseract" / "tesseract"):
         if p.exists(): return str(p)
-    return shutil.which("tesseract") or "tesseract"
+    return shutil.which("tesseract")                         # None when not installed
 
 
-_CMD = tesseract_cmd()
+_CMD = _tesseract_cmd()
 
 
 def ocr_mask(mask01):
-    """Text from a 0/1 mask of white text (as produced by readers.mask.white_mask)."""
+    """Text from a 0/1 mask of white text (kill-feed names).
+
+    Uses CharReader templates (no external dependency).  Falls back to Tesseract
+    if templates aren't ready yet and Tesseract is installed.
+    """
+    reader = _get_feed_reader()
+    if reader.ready:
+        return reader.read(mask01)
+    if _CMD:
+        return _tess_mask(mask01)
+    return ""
+
+
+def _tess_mask(mask01):
     img = 255 - cv2.resize((mask01 * 255).astype(np.uint8), None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
     return _run(cv2.copyMakeBorder(img, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255))
 
 
 def ocr_bgr(crop):
-    """Several readings of light text on a dark background (scoreboard names), one per image variant.
-    Tesseract is erratic on this font and the best scale changes frame to frame; voting over Otsu x4, Otsu x5
-    and plain grey x4 read 20/20 test-clip names correctly where any single variant read 5-15/20."""
+    """Several readings of light text on a dark background (scoreboard names).
+
+    Primary: CharReader on Otsu-binarised variants.
+    Fallback: Tesseract on the same variants (if installed).
+    """
     g0 = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    reader = _get_board_reader()
     out = []
+
     for sc in (4, 5):
         g = cv2.resize(g0, None, fx=sc, fy=sc, interpolation=cv2.INTER_CUBIC)
         _, b = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        out.append(_run(cv2.copyMakeBorder(b, 25, 25, 25, 25, cv2.BORDER_CONSTANT, value=255)))
+        bordered = cv2.copyMakeBorder(b, 25, 25, 25, 25, cv2.BORDER_CONSTANT, value=255)
+        if reader.ready:
+            mask01 = (bordered < 128).astype(np.uint8)
+            r = reader.read(mask01)
+        elif _CMD:
+            r = _run(bordered)
+        else:
+            r = ""
+        if r: out.append(r)
+
     g = 255 - cv2.resize(g0, None, fx=4, fy=4, interpolation=cv2.INTER_CUBIC)
-    out.append(_run(cv2.copyMakeBorder(g, 25, 25, 25, 25, cv2.BORDER_CONSTANT, value=255)))
-    return [o for o in out if o]
+    bordered = cv2.copyMakeBorder(g, 25, 25, 25, 25, cv2.BORDER_CONSTANT, value=255)
+    if reader.ready:
+        mask01 = (bordered < 128).astype(np.uint8)
+        r = reader.read(mask01)
+    elif _CMD:
+        r = _run(bordered)
+    else:
+        r = ""
+    if r: out.append(r)
+
+    return out
 
 
 def _run(img):
+    if not _CMD:
+        return ""
     try:
         r = subprocess.run([_CMD, "stdin", "stdout", "--psm", "7"], input=cv2.imencode(".png", img)[1].tobytes(),
                            capture_output=True, timeout=10)

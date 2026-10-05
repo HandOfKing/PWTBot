@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ':*)",
+      "Bash(python -m pwt replay \"clips/2026-10-01 23-12-52.mkv\")",
+      "Bash(tasklist)",
+      "Bash(taskkill //PID 49860 //F)",
+      "Bash(taskkill //PID 24680 //F)",
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(python -u -m pwt replay \"clips/2026-10-01 23-12-52.mkv\" --roster RGODxEMPEROR KG696969 PARABloodthirs TheWolverine Sarthakkkd Strike333 StarJohnnysins Makjets69 KhajwaKILL3R OmkarKurhade WonderWoman888 TrishaSingh InnocentDevil enriquelatin BruceWayne)"
+    ]
+  }
+}
