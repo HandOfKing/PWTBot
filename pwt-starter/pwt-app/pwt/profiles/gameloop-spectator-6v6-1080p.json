@@ -97,10 +97,63 @@
       116
     ],
     "helmets": {
-      "_comment": "6v6 draws helmets in TWO rows (4 above, 2 below). NOT measured yet -- run `pwt calibrate` on a 1440p/2160p recording before trusting any helmet-based timing."
+      "6": {
+        "blue": [
+          [
+            574,
+            76
+          ],
+          [
+            615,
+            76
+          ],
+          [
+            659,
+            76
+          ],
+          [
+            704,
+            76
+          ],
+          [
+            680,
+            109
+          ],
+          [
+            722,
+            109
+          ]
+        ],
+        "red": [
+          [
+            1206,
+            76
+          ],
+          [
+            1250,
+            76
+          ],
+          [
+            1295,
+            76
+          ],
+          [
+            1341,
+            76
+          ],
+          [
+            1207,
+            109
+          ],
+          [
+            1250,
+            109
+          ]
+        ]
+      }
     },
     "helmet_alive_above": 190,
-    "helmet_dead_above": 80
+    "helmet_dead_above": 40
   },
   "dim_median_below": 45,
   "scoreboard": {
