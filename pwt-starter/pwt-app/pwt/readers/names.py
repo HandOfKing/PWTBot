@@ -21,7 +21,8 @@ _FOLD = {ch: chr(ord('a') + i) for i, cls in enumerate(CLASSES) for ch in cls}
 
 # ---- A5: match threshold + margin ----
 _MATCH_THRESH = 0.55     # minimum score to accept a roster match
-_MATCH_MARGIN = 0.08     # best must beat second-best by this much
+_MATCH_MARGIN = 0.15     # best must beat second-best by this much. 0.15 costs no yield
+                         # (closest roster pair is 0.57) and removes the last self-kill.
 
 _TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 
