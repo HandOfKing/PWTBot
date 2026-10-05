@@ -6,7 +6,9 @@
 - Chirag records the match himself and runs the tool afterwards. One command in, one CSV out.
 - Events land in SQLite, browsable by date and exportable to Excel.
 
-**Full instructions: `docs/PWT_BRIEF.md`. How to run it: `docs/RUNBOOK.md`.**
+**Read `docs/ARCHITECTURE.md` first — it is the contract: the pipeline, the
+invariants, and the definition of done. Then `docs/RUNBOOK.md` to run it, and
+`docs/roster.md` for player spellings.**
 
 ## Scope — read this before proposing work
 This tool analyses **recorded video only**. Do not build, restore or extend:
