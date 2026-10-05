@@ -39,7 +39,11 @@
     "gap_s": 1.0,
     "ocr_samples": 3,
     "min_ink_cols": 25,
-    "row_detect": "panel"
+    "row_detect": "panel",
+    "min_glyphs": 8,
+    "glyph_h_min": 7,
+    "glyph_h_max": 20,
+    "glyph_h_std_max": 6
   },
   "remaining_box": [
     186,

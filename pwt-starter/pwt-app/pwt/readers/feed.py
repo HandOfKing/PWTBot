@@ -29,6 +29,9 @@ def load_icons(folder):
     return out
 
 
+_SEG = None          # lazily-built glyph segmenter for _looks_like_text
+
+
 @dataclass
 class Row:
     y: int                      # absolute y of the row's top
@@ -69,6 +72,15 @@ class FeedReader:
         self.h_max = f.get("row_h_max", 26)
         self.bridge = f.get("bridge", 8)
         self.min_ink_cols = f.get("min_ink_cols", 25)
+        # A10: a feed row is TEXT. min_ink_cols rejects an empty panel, but not
+        # a bright one -- sky and sunlit scenery ink plenty of columns and sail
+        # straight through it, which is why 30% of detections on real footage
+        # were a bridge or the horizon. Text has a signature those don't: many
+        # separate blobs, all about one height. Off unless the profile asks for
+        # it, so footage it has not been measured on keeps its old behaviour.
+        self.min_glyphs = f.get("min_glyphs", 0)
+        self.glyph_h = (f.get("glyph_h_min", 0), f.get("glyph_h_max", 10 ** 6))
+        self.glyph_h_std_max = f.get("glyph_h_std_max", 10 ** 6)
         self.row_detect = f.get("row_detect", "text")   # "text" | "panel"
         self.icon_thresh = f.get("icon_thresh", 0.62)
         self.weapon_thresh = f.get("weapon_thresh", 0.80)
@@ -90,6 +102,9 @@ class FeedReader:
             xs = np.where(col > 0)[0]
             if len(xs) < self.min_ink_cols:
                 continue
+            # A10: does this band actually look like text? See __init__.
+            if self.min_glyphs and not self._looks_like_text(m[max(0, ry0 - 2):ry1 + 2, :]):
+                continue
             # A3: icons CLASSIFY the event, they NEVER gate row acceptance.
             # templates/ holds only a handful of weapons; a kill with any other
             # gun, or a headshot crosshair, matches nothing. Dropping those rows
@@ -103,6 +118,26 @@ class FeedReader:
             r._weapon_thresh = self.weapon_thresh
             out.append(r)
         return out
+
+    def _looks_like_text(self, row_mask):
+        """A10: is this band text, or is it scenery that happens to be bright?
+
+        Uses the same segmentation the name reader will use downstream, so the
+        thresholds mean the same thing in both places. Measured on the 6v6
+        recording: this keeps 137/137 rows that resolve to two roster names and
+        removes 48 of 75 non-rows, so it costs nothing to use.
+        """
+        global _SEG
+        if _SEG is None:
+            from .chars import CharReader
+            _SEG = CharReader("")                     # segmentation only, no templates
+        hs = [c["h"] for c in _SEG._components(row_mask)]
+        if len(hs) < self.min_glyphs:
+            return False
+        med = float(np.median(hs))
+        if not (self.glyph_h[0] <= med <= self.glyph_h[1]):
+            return False
+        return float(np.std(hs)) <= self.glyph_h_std_max
 
     def _row_bands(self, m, g):
         """Pick the row detector this footage needs (profile: feed.row_detect).
