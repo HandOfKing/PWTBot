@@ -17,7 +17,7 @@ import cv2
 from .. import db
 from ..readers import names
 from ..readers.counters import CounterReader
-from ..readers.feed import FeedReader, LineTracker
+from ..readers.feed import FeedReader, LineTracker, row_names
 from ..readers.screens import ScreenReader, ScoreboardStitcher
 
 ELIM_TYPES = ("kill", "eliminated_knocked")
@@ -75,6 +75,7 @@ class Engine:
         self.lm = None
         self.state = "IDLE"                 # IDLE | ROUND_LIVE | ROUND_END | SCOREBOARD | BETWEEN
         self.round_no, self.boards_for_round = 0, set()
+        self.round_starts = []              # (start_s, round_no), for _round_at
         self.players_in_room, self.team_size = None, 2
         self.rem = dict(value=None, cand=None, n=0, left_t=None, first=[])
         self.drops, self.helm_deaths, self.helm = [], [], {}
@@ -124,6 +125,7 @@ class Engine:
             self._ensure_match()
             self.round_no += 1
             self.lm.start_round(self.round_no, start_s=round(t, 3))
+            self.round_starts.append((t, self.round_no))
             if self.rem["value"]:
                 self.players_in_room = max(self.players_in_room or 0, self.rem["value"])
                 self.team_size = max(2, self.players_in_room // 2)
@@ -247,17 +249,18 @@ class Engine:
 
         k_raw = k or raw_ocr
         v_raw = v or raw_ocr
+        rnd = self._round_at(line.first_t)
         rec = dict(feed_t=round(line.first_t, 3), true_t=round(line.first_t, 3),
                    type=line.etype, weapon=line.weapon,
                    killer=k, victim=v, raw_ocr=raw_ocr,
-                   conf=conf, source="feed (approx)", drop=None)
+                   conf=conf, source="feed (approx)", drop=None, round_no=rnd)
         rec["id"] = lm.add_event(dict(
             true_time_s=rec["true_t"], feed_time_s=rec["feed_t"], time_source=rec["source"],
             event_type=rec["type"],
             killer=k, victim=v, killer_raw=k_raw, victim_raw=v_raw,
             weapon=line.weapon, confidence=conf,
             victim_team=self.team_of.get(v) if v else None,
-            flag=flag, round_no=self.round_no or None))
+            flag=flag, round_no=rnd))
         if line.best_crop is not None:
             p = self.ev_dir / f"ev_{rec['id']}.png"
             cv2.imwrite(str(p), line.best_crop)
@@ -272,6 +275,16 @@ class Engine:
         self.log(f"{line.first_t:7.2f}s  feed: {k or '?'} --{rec['type']}/{line.weapon or '-'}--> {v or '?'}"
                  f"   (true {rec['true_t']}s, {rec['source']})"
                  + (f"  FLAG {flag}" if flag else ""))
+
+    def _round_at(self, t):
+        """The round a feed line belongs to: the one live when the line first
+        appeared -- not the one live when its OCR happened to finish, which on a
+        loaded machine can be the next round."""
+        n = None
+        for start, no in self.round_starts:
+            if start <= t + 1e-6:
+                n = no
+        return n if n is not None else (self.round_no or None)
 
     def _align(self, rec):
         """Give an elimination its true time from the matching Remaining drop.
@@ -324,9 +337,17 @@ class Engine:
             self.on_scoreboard(*self.sb_worker.stitcher.progress())
 
     def _close_scoreboard(self, t):
-        """Board gone: don't wait for the reads still queued (that would stall live capture); save when idle."""
+        """Board gone: wait for its queued reads and save it now.
+
+        It used to be saved "whenever the worker went idle", i.e. at a
+        wall-clock moment. Saving sets team_of, which _align filters on, so the
+        same file gave different tables depending on CPU load (handoff
+        2026-10-05 §5). Waiting costs only the reads still queued, once per
+        board; live capture, which that wait would have stalled, is out of scope.
+        """
         self.board_pending = dict(round=self.board_round, closed=t, started=self.sb_started, kept=self.sb_kept)
         self.state = "BETWEEN"
+        self._save_board(wait=True)
 
     def _save_board(self, wait=False):
         bp, self.board_pending = self.board_pending, None
@@ -370,35 +391,24 @@ class Engine:
                 # Re-parse the raw OCR against the updated roster
                 raw = rec.get("raw_ocr", "")
                 if raw and roster:
-                    import re as _re
-                    tokens = _re.split(r'\s+', raw)
-                    hits = []
-                    for tok in tokens:
-                        t = _re.sub(r'[^A-Za-z0-9]', '', tok)
-                        if len(t) < 4:
-                            continue
-                        n, sc = names.match(t, roster)
-                        if n:
-                            hits.append((n, sc))
-                    if len(hits) >= 2 and hits[0][0] != hits[-1][0]:
-                        if not rec["killer"]:
-                            rec["killer"] = upd["killer"] = db.canonical(self.conn, hits[0][0])
-                        if not rec["victim"]:
-                            rec["victim"] = upd["victim"] = db.canonical(self.conn, hits[-1][0])
-                    elif len(hits) == 1 and final:
-                        # Only one name found; assign it to whichever role is
-                        # missing -- but NEVER if that would make the killer and
-                        # the victim the same player. Seen for real: a row with
-                        # killer=InnocentDevil and no victim became
-                        # "InnocentDevil --kill--> InnocentDevil", and because
-                        # both fields were then populated the UNRESOLVED flag was
-                        # cleared. A self-kill is impossible here, so one name is
-                        # evidence of half a row, not of a complete one.
-                        resolved_name = db.canonical(self.conn, hits[0][0])
-                        if not rec["killer"] and rec["victim"] != resolved_name:
-                            rec["killer"] = upd["killer"] = resolved_name
-                        elif not rec["victim"] and rec["killer"] != resolved_name:
-                            rec["victim"] = upd["victim"] = resolved_name
+                    # Same parser as the feed itself. A lone name gets a role only
+                    # when its position in the reading settles it -- it used to be
+                    # handed to whichever role was empty, which made victims into
+                    # killers. Never complete a row into a self-kill: one name is
+                    # evidence of half a row, not of a complete one.
+                    k, _, v, _ = row_names(raw, roster)
+                    k = db.canonical(self.conn, k) if k else None
+                    v = db.canonical(self.conn, v) if v else None
+                    if k and v:
+                        if not rec["killer"] and k != rec["victim"]:
+                            rec["killer"] = upd["killer"] = k
+                        if not rec["victim"] and v != rec["killer"]:
+                            rec["victim"] = upd["victim"] = v
+                    elif final:
+                        if k and not rec["killer"] and k != rec["victim"]:
+                            rec["killer"] = upd["killer"] = k
+                        if v and not rec["victim"] and v != rec["killer"]:
+                            rec["victim"] = upd["victim"] = v
             if upd:
                 resolved = (rec["killer"] and rec["victim"]
                             and rec["killer"] != rec["victim"])
@@ -490,5 +500,6 @@ class Engine:
         self.lm.finish(duration_s=round(self.last_t, 2), team_size=self.team_size,
                        mode="rounds" if self.round_no else None, notes="; ".join(self.notes) or None)
         return dict(match_id=self.lm.id, frames=self.frames, rounds=self.round_no, events=len(self.events),
+                    fragments_merged=self.tracker.merged,
                     cpu_s=round(self.t_cpu, 1), ms_per_frame=round(1000 * self.t_cpu / max(self.frames, 1), 1),
                     notes=self.notes)

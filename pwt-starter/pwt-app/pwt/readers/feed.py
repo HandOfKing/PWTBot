@@ -219,13 +219,59 @@ class FeedReader:
         return sorted(keep, key=lambda c: c[1]), {c[3]: c[0] for c in keep}
 
 
+# ---- Names in one OCR reading ----
+
+def row_names(raw, roster):
+    """(killer, k_score, victim, v_score) from one full-row OCR reading.
+
+    Two roster names: first is the killer, last the victim (the row reads
+    left to right: killer, icons, victim).
+
+    ONE name: its role comes from where it sits in the reading, and only when
+    that is unambiguous -- the first of several tokens is the killer, the last
+    of several is the victim. Otherwise no role is assigned. It used to be put
+    in the killer slot unconditionally, which turned a row caught mid slide-in
+    ("ine <gun> PARAbloodthirs", killer still off screen) into
+    "PARAbloodthirs --kill--> ?" and credited the victim with an elimination.
+    """
+    toks = [re.sub(r'[^A-Za-z0-9]', '', t) for t in raw.split()]
+    toks = [t for t in toks if t]
+    hits = []
+    for i, t in enumerate(toks):
+        if len(t) < 4:
+            continue
+        n, sc = names.match(t, roster)
+        if n:
+            hits.append((i, n, sc))
+    if len(hits) >= 2:
+        if hits[0][1] == hits[-1][1]:               # same player can't be both
+            return None, 0.0, None, 0.0
+        return hits[0][1], hits[0][2], hits[-1][1], hits[-1][2]
+    if len(hits) == 1 and len(toks) > 1:
+        i, n, sc = hits[0]
+        if i == 0:
+            return n, sc, None, 0.0
+        if i == len(toks) - 1:
+            return None, 0.0, n, sc
+    return None, 0.0, None, 0.0
+
+
 # ---- Line tracking (A6: multi-frame voting) ----
+
+def icon_key(icons):
+    """Identity of a row's icons for tracking: which icons, not how many.
+
+    The matcher sometimes hits the same weapon two or three times in one row
+    (``UMP45+knock+UMP45``). As a tuple that differs from ``UMP45+knock`` and
+    split one physical row into two lines."""
+    return frozenset(icons)
+
 
 @dataclass
 class Line:
     """One kill-feed line followed across frames."""
     id: int
-    icons: tuple
+    icons: frozenset
     first_t: float
     last_t: float
     y: int
@@ -235,6 +281,28 @@ class Line:
     best_crop: np.ndarray = None
     confirmed: bool = False
     row: Row = None
+    hist: list = field(default_factory=list)          # (t, row centre y) of every sighting
+    etypes: dict = field(default_factory=dict)        # etype -> sightings that showed it
+    weapons: dict = field(default_factory=dict)       # weapon -> sightings that named it
+    ocr_t: float = None                               # time of the latest OCR sample
+
+    def sighted(self, t, r):
+        self.hist.append((t, r.y + r.h / 2))     # centre: the panel's top edge jitters, its middle doesn't
+        self.etypes[r.etype] = self.etypes.get(r.etype, 0) + 1
+        if r.weapon:
+            self.weapons[r.weapon] = self.weapons.get(r.weapon, 0) + 1
+
+    def absorb(self, other):
+        """Take over another line's sightings: they were the same physical row."""
+        self.hist = sorted(self.hist + other.hist)
+        self.first_t, self.last_t = self.hist[0][0], max(self.last_t, other.last_t)
+        self.seen += other.seen
+        for k, n in other.etypes.items():
+            self.etypes[k] = self.etypes.get(k, 0) + n
+        for k, n in other.weapons.items():
+            self.weapons[k] = self.weapons.get(k, 0) + n
+        if not self.futures and other.futures:
+            self.futures, self.best_crop = other.futures, other.best_crop
 
     @property
     def reads(self):
@@ -247,11 +315,20 @@ class Line:
 
     @property
     def etype(self):
-        return self.row.etype
+        """Majority over every sighting, not the latest one.
+
+        An in-world nameplate sliding across a knock row hides its knock icon
+        for a few frames; one such frame must not turn the knock into a kill.
+        A tie goes to the more specific type (knock / eliminated_knocked)."""
+        if not self.etypes:
+            return self.row.etype
+        return max(self.etypes, key=lambda e: (self.etypes[e], e != "kill"))
 
     @property
     def weapon(self):
-        return self.row.weapon
+        if not self.weapons:
+            return None
+        return max(self.weapons, key=self.weapons.get)
 
     def vote(self, roster):
         """A6: pick the best (killer, victim) from all readings.
@@ -267,22 +344,9 @@ class Line:
             if not raw_clean:
                 continue
             all_raws.append(raw_clean)
-            tokens = re.split(r'\s+', raw_clean)
-            hits = []
-            for tok in tokens:
-                t = re.sub(r'[^A-Za-z0-9]', '', tok)
-                if len(t) < 4:
-                    continue
-                n, sc = names.match(t, roster)
-                if n:
-                    hits.append((n, sc))
-            if len(hits) >= 2:
-                k_name, k_sc = hits[0]
-                v_name, v_sc = hits[-1]
-                if k_name != v_name:                 # same player can't be both
-                    candidates.append((k_name, k_sc, v_name, v_sc, raw_clean))
-            elif len(hits) == 1:
-                candidates.append((hits[0][0], hits[0][1], None, 0.0, raw_clean))
+            k, ks, v, vs = row_names(raw_clean, roster)
+            if k or v:
+                candidates.append((k, ks, v, vs, raw_clean))
 
         raw_consensus = names.consensus(all_raws) if all_raws else ""
 
@@ -291,40 +355,62 @@ class Line:
 
         # Prefer readings where both names resolved
         both = [c for c in candidates if c[0] and c[2]]
-        pool = both or candidates
-
-        # Vote: count (killer, victim) pairs
-        votes = {}
-        for k, ks, v, vs, _ in pool:
-            key = (k, v)
-            votes[key] = votes.get(key, 0) + min(ks, vs or ks)
-        best_key = max(votes, key=votes.get)
-        k, v = best_key
-        # Get the best individual scores for the winning pair
-        k_sc = max((c[1] for c in pool if c[0] == k), default=0.0)
-        v_sc = max((c[3] for c in pool if c[2] == v), default=0.0) if v else 0.0
+        if both:
+            votes = {}
+            for k, ks, v, vs, _ in both:
+                votes[(k, v)] = votes.get((k, v), 0) + min(ks, vs)
+            k, v = max(votes, key=votes.get)
+        else:
+            # Only partial readings. Each one placed its name by position (see
+            # row_names), so killer and victim can come from different readings.
+            def pick(i):
+                tally = {}
+                for c in candidates:
+                    if c[i]:
+                        tally[c[i]] = tally.get(c[i], 0) + c[i + 1]
+                return max(tally, key=tally.get) if tally else None
+            k, v = pick(0), pick(2)
+            if k and k == v:                        # can't be both: trust neither
+                k = v = None
+        k_sc = max((c[1] for c in candidates if k and c[0] == k), default=0.0)
+        v_sc = max((c[3] for c in candidates if v and c[2] == v), default=0.0)
         return k, k_sc, v, v_sc, raw_consensus
 
 
 class LineTracker:
     """Keeps each feed line's identity while it slides in and moves up the stack, so its names are read
-    a few times (not every frame) and it becomes ONE event. Confirm after min_seen_s on screen."""
+    a few times (not every frame) and it becomes ONE event. Confirm after min_seen_s on screen.
 
-    def __init__(self, min_seen_s=0.5, gap_s=1.0, ocr_samples=3, workers=2):
+    Sampling rate must not change the answer. Two things used to depend on it:
+      - OCR samples were taken on sightings 2..4. At 4 fps that is 0.25-0.75 s
+        into the row's life; at 24 fps it is the first ~0.1 s, while the row is
+        still sliding in half-rendered. Samples are now spaced in TIME
+        (ocr_spacing_s apart), so every rate reads the row at the same moments.
+      - Identity required identical icons, so a frame where a nameplate hid the
+        knock icon split one row into two lines -- at 24 fps often enough for
+        the fragment to confirm as a phantom kill. See _same_row().
+    """
+
+    def __init__(self, min_seen_s=0.5, gap_s=1.0, ocr_samples=3, workers=2, ocr_spacing_s=0.25):
         self.min_seen_s, self.gap_s, self.ocr_samples = min_seen_s, gap_s, ocr_samples
+        self.ocr_spacing_s = ocr_spacing_s
         self.lines, self._next = [], 1
         self.pool = ThreadPoolExecutor(max_workers=workers)
         self.waiting = []
+        self.recent = []            # confirmed lines, kept while a fragment of them could still turn up
+        self.merged = 0             # fragments folded into another line (reported by the engine)
 
     def update(self, t, rows):
         """Feed one frame's rows. Returns lines confirmed on this frame."""
         live = [l for l in self.lines if t - l.last_t <= self.gap_s]
         self.lines = live
+        self.recent = [l for l in self.recent if t - l.last_t <= self.gap_s]
         used, newly = set(), []
         for r in sorted(rows, key=lambda r: r.y):
+            key = icon_key(r.icons)
             best, best_d = None, 1e9
             for l in live:
-                if l.id in used or l.icons != r.icons:
+                if l.id in used or l.icons != key:
                     continue
                 dy = r.y - l.y
                 same_slot = abs(dy) <= 4 and t - l.last_t <= 0.25
@@ -334,35 +420,109 @@ class LineTracker:
                     if d < best_d:
                         best, best_d = l, d
             if best is None:
-                best = Line(self._next, r.icons, t, t, r.y, r.h, row=r)
+                best = Line(self._next, key, t, t, r.y, r.h, row=r)
                 self._next += 1
-                self.lines.append(best)
-                live.append(best)
+                live.append(best)                   # live IS self.lines (appending to both listed it twice)
             else:
                 best.last_t, best.y, best.h, best.row = t, r.y, r.h, r
                 best.seen += 1
+            best.sighted(t, r)
             used.add(best.id)
-            # A6: OCR on every sighting (not just first few), up to ocr_samples
-            if len(best.futures) < self.ocr_samples and best.seen >= 2:
+            # A6: OCR a few sightings, spaced in time (see class docstring). Spaced
+            # from the previous sample, not from first_t, so a line that comes
+            # back after a detection gap isn't sampled three frames in a row.
+            if len(best.futures) < self.ocr_samples and \
+                    t - (best.ocr_t or best.first_t) >= self.ocr_spacing_s - 1e-6:
                 best.futures.append(self.pool.submit(names.ocr_mask, r.row_mask))
-                best.best_crop = r.crop
+                best.best_crop, best.ocr_t = r.crop, t
             if not best.confirmed and best not in self.waiting \
                     and t - best.first_t >= self.min_seen_s - 1e-6 and best.seen >= 3:
                 self.waiting.append(best)
+        # Confirm once a line has its OCR samples (or has left the screen), and
+        # WAIT for those reads rather than polling whether they are done yet.
+        # Polling tied the moment of confirmation to wall-clock OCR speed; replay
+        # runs far ahead of real time, so on a loaded machine a row could confirm
+        # several video-seconds late and land in the wrong round. The wait costs
+        # little: the reads were started 0.25-0.5 s of video earlier.
+        need = self.ocr_samples                     # spaced in video time, so the same at every rate
         for l in list(self.waiting):
-            if l.futures and l.reads_done:
+            if l not in self.waiting:               # absorbed earlier in this loop
+                continue
+            enough = len(l.futures) >= need or t - l.last_t > self.gap_s   # or the line is gone
+            if l.futures and enough:
+                for f in l.futures:
+                    f.result()
+                if self._fold_fragment(l):
+                    continue
                 l.confirmed = True
                 newly.append(l)
                 self.waiting.remove(l)
+                self.recent.append(l)
         return newly
+
+    # -- fragments ---------------------------------------------------------
+    @staticmethod
+    def _same_row(a, b):
+        """Were lines a and b the same physical feed row, split by icon flicker?
+
+        Feed rows only ever move UP. So if a row sits in a slot at t1 and is
+        still in that slot at t2, nothing else can have occupied the slot in
+        between. Two lines whose sightings INTERLEAVE in the same slot, and that
+        are never both detected in the same frame, are therefore one row.
+
+        Slots are ~45 px apart; "same slot" is row centres within 8 px.
+
+        Deliberately narrow: lines that merely follow each other in a slot
+        (old row moved up undetected, new row arrived) are NOT merged -- that
+        is how two real events in a row look.
+        """
+        ta = {t for t, _ in a.hist}
+        if any(t in ta for t, _ in b.hist):
+            return False                            # seen together = two rows
+        for frag, host in ((a, b), (b, a)):
+            hits = 0
+            for t, y in frag.hist:
+                before = [hy for ht, hy in host.hist if ht < t]
+                after = [hy for ht, hy in host.hist if ht > t]
+                if before and after and abs(before[-1] - y) <= 8 and abs(after[0] - y) <= 8:
+                    hits += 1
+            if hits and hits * 2 >= len(frag.hist):  # most of frag sits inside host's stay in that slot
+                return True
+        return False
+
+    def _fold_fragment(self, line):
+        """Before confirming `line`, fold together every line that is the same row.
+
+        The one already confirmed, else the one seen most, keeps the identity.
+        Returns True if `line` was absorbed (and must not be emitted)."""
+        while True:
+            other = next((o for o in self.recent + self.lines
+                          if o is not line and self._same_row(line, o)), None)
+            if other is None:
+                return False
+            if other.confirmed or other.seen >= line.seen:
+                host, frag = other, line
+            else:
+                host, frag = line, other
+            host.absorb(frag)
+            self.merged += 1
+            for lst in (self.lines, self.waiting, self.recent):
+                lst[:] = [x for x in lst if x is not frag]
+            if frag is line:
+                return True
 
     def flush(self):
         """End of source: wait for outstanding reads and return lines that qualified but weren't confirmed."""
         out = []
-        for l in self.waiting:
+        for l in list(self.waiting):
+            if l not in self.waiting:
+                continue
             for f in l.futures:
                 f.result()
+            if self._fold_fragment(l):
+                continue
             l.confirmed = True
+            self.recent.append(l)
             out.append(l)
         self.waiting = []
         return out
