@@ -68,6 +68,8 @@ class FeedReader:
         self.h_min = f.get("row_h_min", 9)
         self.h_max = f.get("row_h_max", 26)
         self.bridge = f.get("bridge", 8)
+        self.min_ink_cols = f.get("min_ink_cols", 25)
+        self.row_detect = f.get("row_detect", "text")   # "text" | "panel"
         self.icon_thresh = f.get("icon_thresh", 0.62)
         self.weapon_thresh = f.get("weapon_thresh", 0.80)
         self.icons = load_icons(profile.templates / "icons")
@@ -78,16 +80,21 @@ class FeedReader:
         g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         m = white_mask(crop)
         out = []
-        for ry0, ry1 in self._feed_boxes(g):
-            # A2: reject empty boxes — require at least 5 non-? chars in the mask
+        for ry0, ry1 in self._row_bands(m, g):
+            # A2: reject empty boxes. The panel detector fires on flat dark
+            # scenery too (18-29% of hits on real footage). A real feed row inks
+            # 200+ columns; an empty panel inks almost none, so 5 was far too
+            # low a bar to catch them.
             row_m = m[max(0, ry0 - 2):ry1 + 2, :]
             col = row_m.sum(0)
             xs = np.where(col > 0)[0]
-            if len(xs) < 5:
+            if len(xs) < self.min_ink_cols:
                 continue
+            # A3: icons CLASSIFY the event, they NEVER gate row acceptance.
+            # templates/ holds only a handful of weapons; a kill with any other
+            # gun, or a headshot crosshair, matches nothing. Dropping those rows
+            # is what reduced a real 6v6 recording to zero events.
             icons, icon_scores = self._icons(m, ry0, ry1)
-            if not icons:
-                continue                                     # no icon = not a feed row
             a, b = max(0, ry0 - 2), ry1 + 2
             r = Row(y=ry0 + y0, h=ry1 - ry0, icons=tuple(c[3] for c in icons),
                     icon_scores={c[3]: c[0] for c in icons},
@@ -95,6 +102,46 @@ class FeedReader:
                     crop=crop[max(0, ry0 - 8):ry1 + 8, :].copy())
             r._weapon_thresh = self.weapon_thresh
             out.append(r)
+        return out
+
+    def _row_bands(self, m, g):
+        """Pick the row detector this footage needs (profile: feed.row_detect).
+
+        'panel' -- scan the panel's flat dark left padding. Required for
+          first-person SPECTATOR footage, where the feed overlays moving
+          scenery and text density finds the scenery instead of the rows.
+          Needs rows far enough apart that the padding goes bright between
+          them (measured: min gap 17px in the 6v6 recording).
+
+        'text'  -- the original text-density scan plus a left-alignment
+          filter. Right for the 2v2 clip, whose rows sit ~46px apart with a
+          panel that stays dark BETWEEN rows, so 'panel' merges them into one
+          70px run. Fine there because the background barely moves.
+
+        There is no single setting that serves both. That is what layout
+        profiles are for.
+        """
+        if self.row_detect == "text":
+            return self._text_bands(m)
+        return self._feed_boxes(g)
+
+    def _text_bands(self, m):
+        """Original detector: runs of text density, left-aligned to the feed."""
+        prof = m[:, 14:440].sum(1)
+        out, y, H = [], 0, len(prof)
+        while y < H:
+            if prof[y] >= 3:
+                s = y
+                while y < H and prof[y] >= 2:
+                    y += 1
+                if self.h_min <= y - s <= self.h_max:
+                    col = m[s:y].sum(0)
+                    col[:12] = 0
+                    xs = np.where(col > 0)[0]
+                    lo, hi = self.pad[0] - self.box[0], self.pad[1] - self.box[0]
+                    if len(xs) and lo <= xs[0] <= hi:
+                        out.append((s, y))
+            y += 1
         return out
 
     def _feed_boxes(self, g):

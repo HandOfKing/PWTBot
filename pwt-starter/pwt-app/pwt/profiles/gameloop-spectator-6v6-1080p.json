@@ -1,10 +1,10 @@
 {
-  "name": "gameloop-windowed-1080p",
+  "name": "gameloop-spectator-6v6-1080p",
   "resolution": [
     1920,
     1080
   ],
-  "note": "Measured on the 2026-10-01 test clip: GameLoop windowed, game area x100-1828 y53-1025 inside a 1920x1080 capture. Recalibrate for fullscreen + bigger kill feed.",
+  "note": "Measured on Video_Project_9.mp4 (2026-10-04): GameLoop windowed, first-person SPECTATOR, 6v6, 1920x1080 @ 15.9 Mbps. The feed sits lower and its rows are ~32px tall, vs ~10px in the 2v2 clip, so these numbers do NOT transfer to gameloop-windowed-1080p and that profile must stay as it is for the regression test.",
   "capture_region": [
     0,
     0,
@@ -19,33 +19,33 @@
   ],
   "feed": {
     "box": [
-      100,
-      215,
-      760,
-      480
+      106,
+      280,
+      620,
+      520
     ],
     "padding_px": [
-      105,
-      140
+      106,
+      118
     ],
     "dark_mean_max": 90,
     "dark_std_max": 25,
-    "row_h_min": 9,
-    "row_h_max": 26,
-    "bridge": 8,
+    "row_h_min": 22,
+    "row_h_max": 45,
+    "bridge": 17,
     "icon_thresh": 0.62,
     "weapon_thresh": 0.8,
     "min_seen_s": 0.5,
     "gap_s": 1.0,
     "ocr_samples": 3,
-    "row_detect": "text",
-    "min_ink_cols": 5
+    "min_ink_cols": 25,
+    "row_detect": "panel"
   },
   "remaining_box": [
-    184,
+    186,
     60,
-    210,
-    88
+    208,
+    90
   ],
   "creation_code_box": [
     495,
@@ -97,28 +97,7 @@
       116
     ],
     "helmets": {
-      "2": {
-        "blue": [
-          [
-            666,
-            76
-          ],
-          [
-            710,
-            76
-          ]
-        ],
-        "red": [
-          [
-            1218,
-            76
-          ],
-          [
-            1262,
-            76
-          ]
-        ]
-      }
+      "_comment": "6v6 draws helmets in TWO rows (4 above, 2 below). NOT measured yet -- run `pwt calibrate` on a 1440p/2160p recording before trusting any helmet-based timing."
     },
     "helmet_alive_above": 190,
     "helmet_dead_above": 80
