@@ -8,7 +8,7 @@ Where the data lives:
 import os, sys, sqlite3, re, datetime as dt
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 
@@ -42,7 +42,25 @@ def init_db(conn):
         conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
-    # future: elif ver < SCHEMA_VERSION: run migrations in order
+    elif ver < SCHEMA_VERSION:
+        _migrate(conn, ver)
+
+
+# Views are derived, so a migration that only changes them just drops and rebuilds
+# them. Tables are untouched: every CREATE TABLE in schema.sql is IF NOT EXISTS, so
+# re-running the script is a no-op for data.
+_VIEWS = ("v_events", "v_knock_outcomes", "v_elim_credit", "v_player_match", "v_player_career")
+
+
+def _migrate(conn, ver):
+    if ver < 2:
+        # v2: eliminations are credited to the latest un-revived knocker, not to
+        # whoever fired the finishing shot (see v_elim_credit in schema.sql).
+        for v in _VIEWS:
+            conn.execute(f"DROP VIEW IF EXISTS {v}")
+    conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    conn.commit()
 
 
 # ---------- players ----------

@@ -139,11 +139,49 @@ FROM (
   FROM events k WHERE k.event_type = 'knock'
 );
 
--- Per player per match. "eliminations" = kill + eliminated_knocked credited to the killer.
+-- Who the GAME credits with each elimination (Chirag's rule, confirmed against the
+-- round-1 scoreboard: Khajwa 1 elim, Wolverine 1 elim).
+--
+-- The credit goes to whoever KNOCKED the victim, not whoever fired the finishing
+-- shot. A knock creates a claim; a revive clears it; a later knock by someone else
+-- replaces it, so the LATEST un-revived knocker is credited. Only an elimination
+-- with no outstanding knock -- a kill from full health -- credits the shooter.
+--
+-- Worked example from Video_Project_9 round 1: KhajwaKILL3R knocks KG696969, then
+-- TheWolverine finishes him. The feed row reads "TheWolverine [gun] KG696969", but
+-- the elimination belongs to Khajwa. Counting the feed's killer_id credited the
+-- wrong player on every assisted kill.
+--
+-- v_knock_outcomes already encodes the latest-knocker rule: being knocked again
+-- marks the earlier knock 'revived', so the only knock left as 'eliminated' is the
+-- most recent un-revived one. Ordering by feed_time_s DESC and taking the first is
+-- belt and braces for a victim knocked more than once in a round.
+--
+-- An unattributed row (NO_FEED_ROW) has victim_id NULL, so the subquery matches
+-- nothing and credited_id stays NULL: it is counted for no one, which is correct.
+CREATE VIEW IF NOT EXISTS v_elim_credit AS
+SELECT e.id AS event_id, e.match_id, e.round_id, e.victim_id,
+       e.killer_id AS finisher_id,
+       COALESCE(
+         (SELECT o.knocker_id FROM v_knock_outcomes o
+           WHERE o.match_id = e.match_id
+             AND IFNULL(o.round_id, -1) = IFNULL(e.round_id, -1)
+             AND o.victim_id = e.victim_id
+             AND o.outcome = 'eliminated'
+             AND o.feed_time_s < e.feed_time_s
+           ORDER BY o.feed_time_s DESC LIMIT 1),
+         e.killer_id)                                                            AS credited_id
+FROM events e
+WHERE e.event_type IN ('kill', 'eliminated_knocked');
+
+-- Per player per match. "eliminations" follows the game's crediting rule above;
+-- "finishes" is what the feed literally showed, kept so the two can be compared.
 CREATE VIEW IF NOT EXISTS v_player_match AS
 SELECT mp.match_id, m.recorded_at, p.id AS player_id, p.ign, p.nickname, mp.team,
-  (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.killer_id = p.id
-      AND e.event_type IN ('kill','eliminated_knocked'))                         AS eliminations,
+  (SELECT COUNT(*) FROM v_elim_credit c WHERE c.match_id = mp.match_id
+      AND c.credited_id = p.id)                                                  AS eliminations,
+  (SELECT COUNT(*) FROM v_elim_credit c WHERE c.match_id = mp.match_id
+      AND c.finisher_id = p.id)                                                  AS finishes,
   (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.killer_id = p.id
       AND e.event_type = 'knock')                                                 AS knocks,
   (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.victim_id = p.id
