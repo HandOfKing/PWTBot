@@ -102,12 +102,12 @@ jobs:
           $top = (Get-ChildItem dist\PWT | ForEach-Object { $_.Name }) -join ", "
           "::notice title=package::$z, $d. Top level: $top"
 
+      # the app folder itself, so the download from the run page unzips straight to PWT.exe
       - uses: actions/upload-artifact@v4
         with:
           name: PWT-windows
-          path: |
-            pwt-starter/pwt-app/PWT-*-windows.zip
-            pwt-starter/pwt-app/selftest.txt
+          path: pwt-starter/pwt-app/dist/PWT/
+          retention-days: 90
 
       - name: Attach to release
         if: github.ref_type == 'tag'
