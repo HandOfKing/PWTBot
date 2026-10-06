@@ -43,6 +43,14 @@ publish unless `PWT.exe --selftest` passes. A tag also attaches the zip to a Rel
 
 From source: `python app\main.py` (needs Tesseract installed or `PWT_TESSERACT` set).
 
+### Scoreboards
+Round boards and the end-of-match board have five columns on 6v6: Eliminations, Assists, Damage
+Dealt, Damage Taken, Knock Outs. The end-of-match board needs scrolling to show all 12 rows; scroll
+it slowly top to bottom while recording. Numbers are read with digit templates
+(`pwt/templates/digits_board`). To teach a new digit shape from a board whose values you know:
+`python tools/harvest_board_digits.py <clip> <truth.csv>` (format: `tests/fixtures/match_board_vp11.csv`),
+then check on a different board with `--check-only`. It must report 0 WRONG.
+
 ## The command
 
 ```

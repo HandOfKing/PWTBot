@@ -12,7 +12,8 @@ class ScreenReader:
         self.band, self.hdr_thresh = sb["header_band"], sb["header_thresh"]
         self.player_col, self.team_col, self.table_y = sb["player_col"], sb["team_col"], sb["table_y"]
         self.value_cols = sb["value_cols"]
-        self.digits = DigitReader(profile.templates / "digits_board")
+        self.digits = DigitReader(profile.templates / "digits_board",
+                                  min_score=profile["scoreboard"].get("digit_min_score", 0.80))
 
     def is_scoreboard(self, im):
         x0, y0, x1, y1 = self.band
@@ -48,13 +49,24 @@ class ScreenReader:
             y += 1
         return out
 
-    def read_rows(self, im, roster=()):
-        """Every visible player row: name (raw + roster match), team number, value cells."""
+    def read_rows(self, im, roster=(), team_size=None):
+        """Every visible player row: name (raw + roster match), team number, value cells.
+
+        The team number is drawn once per team, at the vertical middle of that
+        team's block of rows. A row takes a badge's team only if it lies inside
+        that block: within team_size/2 row pitches of the badge. Without that
+        limit, a row whose own team's badge had scrolled off screen took the
+        other team's number (Video_Project_11, 4.0 s: KG696969 read as team 1).
+        Out of reach -> team None for this frame; the stitcher votes over frames.
+        """
         teams = [(yc, self.digits.read(im[yc - 20:yc + 20, self.team_col[0]:self.team_col[1]])[0])
                  for yc in self._bands(im, *self.team_col, bright=130, min_prof=2)]
         teams = [(y, v) for y, v in teams if v is not None]
+        ys = self._bands(im, *self.player_col)
+        pitch = float(np.median(np.diff(ys))) if len(ys) >= 2 else 82.0
+        reach = (team_size / 2) * pitch if team_size else None
         rows = []
-        for yc in self._bands(im, *self.player_col):
+        for yc in ys:
             cell = im[yc - 20:yc + 20, self.player_col[0]:self.player_col[1]]
             xs = np.where((cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY) > 150).sum(0) > 0)[0]
             if len(xs): cell = cell[:, max(0, xs[0] - 6):xs[-1] + 6]          # tight crop reads best
@@ -62,7 +74,11 @@ class ScreenReader:
             raw = names.consensus(raws)
             name, conf = max((names.match(r, roster) for r in raws), key=lambda m: m[1], default=(None, 0.0))
             vals = {k: self.digits.read(im[yc - 20:yc + 20, a:b])[0] for k, (a, b) in self.value_cols.items()}
-            team = min(teams, key=lambda t: abs(t[0] - yc))[1] if teams else None   # team digit sits mid-group
+            team = None
+            if teams:
+                ty, tv = min(teams, key=lambda t: abs(t[0] - yc))       # team digit sits mid-block
+                if reach is None or abs(ty - yc) <= reach:
+                    team = tv
             rows.append(dict(y=yc, raw=raw, raws=raws, name=name, conf=conf, team=team, values=vals))
         return rows
 
@@ -98,6 +114,11 @@ class ScoreboardStitcher:
     def result(self, value_cols):
         out = []
         for e in self.entries.values():
+            if not e["names"] and e["seen"] <= 1 and not e["votes"]:
+                # one sighting, no roster match, not one readable number: a row clipped at the
+                # edge of the scrolling list (Video_Project_11: "Noathwich */ nv" was
+                # DeathwishツSpy cut in half). Keeping it would add a fake player.
+                continue
             ign = max(set(e["names"]), key=e["names"].count) if e["names"] else names.consensus(e["raws"])
             vals, agree = {}, {}
             for c in value_cols:

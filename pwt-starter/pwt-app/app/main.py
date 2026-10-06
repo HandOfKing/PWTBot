@@ -285,7 +285,10 @@ class App:
             f"{c['eliminations']} eliminations in {c['rounds']} rounds  -  {c['named']} named, "
             f"{c['no_feed_row']} without a kill-feed row\n"
             f"{c['knocks']} knocks  -  {c['to_review']} rows flagged for review\n"
-            f"Saved: {res.xlsx_path.name}  (+ events CSV and log)")
+            + (f"End-of-match scoreboard: {c['board_players']} players"
+               + (f", {c['board_blank']} number{'s' * (c['board_blank'] != 1)} unreadable" if c['board_blank'] else "") + "\n"
+               if c.get('board_players') else "End-of-match scoreboard: not found\n")
+            + f"Saved: {res.xlsx_path.name}  (+ events CSV and log)")
         self.b_xlsx.configure(state="normal"); self.b_folder.configure(state="normal")
         self.v_status.set(("Stopped early - partial result saved. " if res.cancelled else "Done. ")
                           + f"Took {took}.")

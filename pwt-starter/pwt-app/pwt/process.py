@@ -86,6 +86,9 @@ def match_counts(conn, match_id):
         knocks=q("SELECT COUNT(*) FROM events WHERE match_id=? AND event_type='knock'"),
         to_review=q("SELECT COUNT(*) FROM events WHERE match_id=? AND flag IS NOT NULL AND reviewed=0"),
         rounds=q("SELECT COUNT(*) FROM rounds WHERE match_id=?"),
+        # end-of-match board: players read, and cells left blank (unreadable, never guessed)
+        board_players=q("SELECT COUNT(DISTINCT player_id) FROM scoreboard_stats WHERE match_id=? AND round_id IS NULL"),
+        board_blank=q("SELECT COUNT(*) FROM scoreboard_stats WHERE match_id=? AND round_id IS NULL AND value IS NULL"),
     )
 
 

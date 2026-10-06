@@ -58,6 +58,10 @@ def _player_rows(players):
     return rows
 
 
+STAT_LABELS = {"eliminations": "Eliminations", "assists": "Assists", "damage_dealt": "Damage dealt",
+               "damage_taken": "Damage taken", "knock_outs": "Knock outs"}
+
+
 def export_match(conn, match_id, path):
     from .db import match_detail
     d = match_detail(conn, match_id)
@@ -90,15 +94,18 @@ def export_match(conn, match_id, path):
     for st in d["stats"]:
         piv.setdefault((st["round_no"], st["ign"]), {})[st["stat_name"]] = st["value"]
         if st["stat_name"] not in stat_names: stat_names.append(st["stat_name"])
-    order = [c for c in ("eliminations", "damage_dealt", "col_1", "col_2", "col_3", "col_4") if c in stat_names] + \
-            [c for c in stat_names if c not in ("eliminations", "damage_dealt", "col_1", "col_2", "col_3", "col_4")]
+    known = ("eliminations", "assists", "damage_dealt", "damage_taken", "knock_outs",
+             "col_1", "col_2", "col_3", "col_4")
+    order = [c for c in known if c in stat_names] + [c for c in stat_names if c not in known]
     rnd = sorted(((k, v) for k, v in piv.items() if k[0] is not None), key=lambda kv: (kv[0][0], kv[0][1]))
+    label = lambda c: STAT_LABELS.get(c, c)
     ws = wb.create_sheet("Round scoreboards")
-    _table(ws, ["Round", "Player", "Team"] + order,
+    _table(ws, ["Round", "Player", "Team"] + [label(c) for c in order],
            [[k[0], k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in rnd])
     mt = sorted(((k, v) for k, v in piv.items() if k[0] is None), key=lambda kv: kv[0][1])
     ws = wb.create_sheet("Match scoreboard")
-    _table(ws, ["Player", "Team"] + order, [[k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in mt])
+    _table(ws, ["Player", "Team"] + [label(c) for c in order],
+           [[k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in mt])
     wb.save(path)
     return path
 

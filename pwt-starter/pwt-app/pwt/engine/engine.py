@@ -29,11 +29,12 @@ class ScoreboardWorker:
 
     def __init__(self, screens):
         self.screens, self.q = screens, queue.Queue()
-        self.stitcher, self.roster = None, ()
+        self.stitcher, self.roster, self.team_size = None, (), None
         threading.Thread(target=self._run, daemon=True).start()
 
     def start(self, expected, roster):
         self.stitcher, self.roster = ScoreboardStitcher(expected), tuple(roster)
+        self.team_size = expected // 2 if expected else None      # players in the room / 2
 
     def submit(self, frame):
         self.q.put(frame)
@@ -42,7 +43,7 @@ class ScoreboardWorker:
         while True:
             frame = self.q.get()
             try:
-                self.stitcher.add(self.screens.read_rows(frame, self.roster))
+                self.stitcher.add(self.screens.read_rows(frame, self.roster, self.team_size))
             finally:
                 self.q.task_done()
 

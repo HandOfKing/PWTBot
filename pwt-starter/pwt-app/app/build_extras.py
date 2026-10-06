@@ -33,6 +33,12 @@ Use it
   5. Press Start. The bar shows how long is left. You can Stop at any time; the
      part done so far is kept.
 
+When recording
+  At the end of the match, keep recording on the final scoreboard and scroll it
+  slowly from the top to the bottom (and back up) so every player's row is on
+  screen for a second or two. The app reads Eliminations, Assists, Damage
+  Dealt, Damage Taken and Knock Outs for every row it sees.
+
 Results
   Next to the recording:  <recording> - PWT.xlsx       the tables
                           <recording> - PWT events.csv  the same events, plain

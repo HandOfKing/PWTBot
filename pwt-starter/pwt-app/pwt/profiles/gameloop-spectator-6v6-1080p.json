@@ -192,28 +192,31 @@
       1010
     ],
     "value_cols": {
-      "col_1": [
+      "eliminations": [
         1100,
         1220
       ],
-      "col_2": [
+      "assists": [
         1232,
         1352
       ],
-      "col_3": [
+      "damage_dealt": [
         1364,
         1484
       ],
-      "col_4": [
+      "damage_taken": [
         1496,
         1616
       ],
-      "damage_dealt": [
+      "knock_outs": [
         1628,
         1750
       ]
     },
-    "eliminations_col": "col_1",
+    "value_cols_note": "Headers on the 6v6 round AND match boards (Video_Project_9 round 1, Video_Project_11): No. of Eliminations, Assists, Damage Dealt, Damage Taken, Knock Outs. The old names (col_1..col_4, damage_dealt) were copied from the 2v2 board and put Knock Outs under damage_dealt.",
+    "eliminations_col": "eliminations",
+    "digit_min_score": 0.83,
+    "digit_min_score_note": "Video_Project_11: every misread board glyph (6->9, 8->9, split from touching digits) scored <= 0.807; 95% of correct glyphs score >= 0.858, and the held-out round board's lowest is 0.845.",
     "team_colors": {
       "1": "blue",
       "2": "red"
