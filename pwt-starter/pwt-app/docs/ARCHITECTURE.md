@@ -17,8 +17,9 @@ we are. Later: a per-player "Impact" score.
 python -m pwt replay match.mkv --profile <name> --csv events.csv
 ```
 
-Eventually the same pipeline behind a desktop app a non-technical friend can run
-with nothing installed.
+The same pipeline behind a desktop app a non-technical friend can run with
+nothing installed: `app/main.py` (Tkinter) over `pwt/process.py`, shipped as a
+portable Windows zip built and self-tested by `.github/workflows/build-windows.yml`.
 
 ---
 

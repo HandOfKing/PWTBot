@@ -1,0 +1,108 @@
+# Builds the portable Windows app (PWT-<version>-windows.zip).
+#
+#   push to stage-a-fix (app or pipeline code)  -> build + self-test, zip kept as a run artifact
+#   push a tag v*  (git tag v0.1.0 && git push origin v0.1.0)  -> same, and attached to a GitHub Release
+#   Actions tab -> build-windows -> Run workflow                 -> same as a branch push
+#
+# The packaged app is not trusted until it passes its own self-test (PWT.exe --selftest):
+# bundled files, the bundled OCR engine, video decoding, the pipeline, Excel export, and the
+# window driven end to end.
+name: build-windows
+on:
+  push:
+    branches: [stage-a-fix]
+    tags: ["v*"]
+    paths:
+      - "pwt-starter/pwt-app/pwt/**"
+      - "pwt-starter/pwt-app/app/**"
+      - "pwt-starter/pwt-app/tests/**"
+      - "pwt-starter/pwt-app/docs/roster.md"
+      - "pwt-starter/pwt-app/requirements-app.txt"
+      - ".github/workflows/build-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+    working-directory: pwt-starter/pwt-app
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Tesseract (bundled into the app; also lets the OCR tests run)
+        run: |
+          choco install tesseract -y --no-progress
+          "C:\Program Files\Tesseract-OCR" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Install Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-app.txt pyinstaller
+
+      - name: Tests
+        run: |
+          tesseract --version
+          python tests/run_all.py
+
+      - name: Build with PyInstaller (one folder, no console)
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name PWT --paths .
+          --collect-submodules pwt
+          --add-data "pwt/schema.sql;pwt"
+          --add-data "pwt/templates;pwt/templates"
+          --add-data "pwt/profiles;pwt/profiles"
+          app/main.py
+
+      - name: Bundle a slim Tesseract (English only)
+        run: |
+          $src = "C:\Program Files\Tesseract-OCR"
+          $dst = "dist\PWT\vendor\tesseract"
+          New-Item -ItemType Directory -Force "$dst\tessdata" | Out-Null
+          Copy-Item "$src\*.exe", "$src\*.dll" $dst
+          Copy-Item "$src\tessdata\eng.traineddata", "$src\tessdata\osd.traineddata" "$dst\tessdata"
+          if (Test-Path "$src\tessdata\configs") { Copy-Item -Recurse "$src\tessdata\configs" "$dst\tessdata\configs" }
+          Get-ChildItem $dst -Recurse | Measure-Object -Property Length -Sum | ForEach-Object { "tesseract bundle: {0:N1} MB" -f ($_.Sum / 1MB) }
+
+      - name: Roster and README next to the app
+        run: python app/build_extras.py dist/PWT
+
+      - name: Self-test the packaged app
+        run: |
+          # take the system Tesseract off PATH so the test proves the BUNDLED one works
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notlike '*Tesseract-OCR*' }) -join ';'
+          $out = Join-Path $PWD "selftest.txt"
+          $p = Start-Process -FilePath "dist\PWT\PWT.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
+          if (Test-Path $out) { Get-Content $out } else { "no self-test report written" }
+          if ($p.ExitCode -ne 0) { throw "self-test failed (exit $($p.ExitCode))" }
+          if (-not (Select-String -Path $out -Pattern "vendor\\tesseract" -Quiet)) { throw "self-test did not use the bundled Tesseract" }
+
+      - name: Zip
+        run: |
+          $v = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
+          Compress-Archive -Path dist\PWT -DestinationPath "PWT-$v-windows.zip"
+          Get-ChildItem PWT-*-windows.zip | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PWT-windows
+          path: |
+            pwt-starter/pwt-app/PWT-*-windows.zip
+            pwt-starter/pwt-app/selftest.txt
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pwt-starter/pwt-app/PWT-*-windows.zip
+          body_path: pwt-starter/pwt-app/dist/PWT/README.txt

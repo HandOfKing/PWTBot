@@ -273,7 +273,7 @@ def recover_interrupted(conn):
 
 def list_matches(conn, date_from=None, date_to=None, player=None):
     """Matches newest first, with headline numbers. Dates are 'YYYY-MM-DD' (inclusive)."""
-    q = """SELECT m.id, m.recorded_at, m.room_code, m.mode, m.team_size, m.rounds_played, m.winner_team, m.status,
+    q = """SELECT m.id, m.recorded_at, m.source_file, m.room_code, m.mode, m.team_size, m.rounds_played, m.winner_team, m.status,
                   (SELECT COUNT(*) FROM events e WHERE e.match_id = m.id AND e.event_type IN ('kill','eliminated_knocked')) AS eliminations,
                   (SELECT COUNT(*) FROM events e WHERE e.match_id = m.id AND e.flag IS NOT NULL AND e.reviewed = 0) AS to_review,
                   (SELECT COUNT(*) FROM match_players mp WHERE mp.match_id = m.id) AS players
@@ -286,6 +286,27 @@ def list_matches(conn, date_from=None, date_to=None, player=None):
                               WHERE p.ign LIKE ? OR p.nickname LIKE ?)"""
         args += [f"%{player}%", f"%{player}%"]
     return conn.execute(q + " ORDER BY m.recorded_at DESC", args).fetchall()
+
+
+def find_match(conn, source_file, recorded_at):
+    """Id of an earlier result for the same recording, or None (matches are unique per file + time)."""
+    r = conn.execute("SELECT id FROM matches WHERE source_file=? AND recorded_at=?",
+                     (source_file, recorded_at)).fetchone()
+    return r[0] if r else None
+
+
+def db_folder(conn) -> Path:
+    """The folder of this connection's database file; evidence images live beside it."""
+    return Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent
+
+
+def delete_match(conn, match_id):
+    """Remove a match, everything hanging off it (cascade), and its evidence images -- the ones
+    beside THIS database, never another data folder's."""
+    import shutil
+    with conn:
+        conn.execute("DELETE FROM matches WHERE id=?", (match_id,))
+    shutil.rmtree(db_folder(conn) / "evidence" / f"match_{match_id}", ignore_errors=True)
 
 
 def match_detail(conn, match_id):

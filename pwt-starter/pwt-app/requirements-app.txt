@@ -1,0 +1,6 @@
+# What the desktop app needs at run time (the Windows build installs only these + pyinstaller).
+# requirements.txt also lists legacy live-capture and dev packages; the app does not use them.
+numpy>=1.26
+opencv-python>=4.9
+openpyxl>=3.1
+# plus Tesseract OCR: bundled into the zip by the build; from source, install it or set PWT_TESSERACT

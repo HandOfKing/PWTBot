@@ -50,11 +50,18 @@ def _tesseract_cmd():
     if os.environ.get("PWT_TESSERACT"): return os.environ["PWT_TESSERACT"]
     base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
     for p in (base / "vendor" / "tesseract" / "tesseract.exe", base / "vendor" / "tesseract" / "tesseract"):
-        if p.exists(): return str(p)
+        if p.exists():
+            # the bundled copy carries only the languages we need, next to it
+            if (p.parent / "tessdata").is_dir():
+                os.environ.setdefault("TESSDATA_PREFIX", str(p.parent / "tessdata"))
+            return str(p)
     return shutil.which("tesseract")                         # None when not installed
 
 
 _CMD = _tesseract_cmd()
+# A windowed app (the desktop build) would flash a console for every tesseract
+# call -- hundreds per match -- unless told not to.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # A12: a failed read is not an empty box. Both were returning "" and becoming
 # indistinguishable from "no text here", so a broken or missing OCR engine made
@@ -133,7 +140,7 @@ def _run(img):
         return ""
     try:
         r = subprocess.run([_CMD, "stdin", "stdout", "--psm", "7"], input=cv2.imencode(".png", img)[1].tobytes(),
-                           capture_output=True, timeout=10)
+                           capture_output=True, timeout=10, creationflags=_NO_WINDOW)
         return r.stdout.decode(errors="ignore").strip()
     except subprocess.TimeoutExpired:
         stats["timeout"] += 1               # A12: a lost read, not an empty box

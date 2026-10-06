@@ -3,7 +3,8 @@
 ## What this is
 - A tool that reads **OBS recordings** of PUBG Mobile World of Wonder (WoW) custom rooms and
   turns them into a table of eliminations.
-- Chirag records the match himself and runs the tool afterwards. One command in, one CSV out.
+- Chirag records the match himself and runs the tool afterwards: the desktop app (`app/main.py`,
+  shipped as a Windows zip) or one command (`python -m pwt replay`). Recording in, tables out.
 - Events land in SQLite, browsable by date and exportable to Excel.
 
 **Read `docs/ARCHITECTURE.md` first — it is the contract: the pipeline, the
@@ -14,8 +15,11 @@ invariants, and the definition of done. Then `docs/RUNBOOK.md` to run it, and
 This tool analyses **recorded video only**. Do not build, restore or extend:
 - live screen capture, real-time analysis, or anything that watches the game as it plays
 - auto-scroll or any other input sent to the game
-- a desktop GUI, a PyInstaller bundle, or a Releases zip
 - folder watching
+
+The desktop app IS in scope (Chirag, 2026-10-05): Tkinter, `app/main.py`, a thin window over
+`pwt/process.py`. Keep logic out of the window so it can be tested without a display. It is
+built and self-tested on a Windows runner by `.github/workflows/build-windows.yml` (repo root).
 
 `pwt/capture/sources.py` still contains `LiveScreenSource` and `pwt live` still exists. They are
 **legacy and unsupported**. Do not spend time on them. `FileReplaySource` is the only path that matters.
@@ -100,6 +104,7 @@ intended way to measure one.
 ```
 python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
 python tests/run_all.py
-python -m pwt replay clips\Video_Project_7.mp4 --profile gameloop-windowed-1080p
+python -m pwt replay clips\Video_Project_9.mp4 --profile gameloop-spectator-6v6-1080p --roster <names>
+python app\main.py                                   # the desktop app from source
 ```
-The 2v2 clip must keep reproducing the §11 ground truth. That is the regression test.
+`Video_Project_9.mp4` must give 14 eliminations at --fps 4, 12 and 24 (ARCHITECTURE §6).

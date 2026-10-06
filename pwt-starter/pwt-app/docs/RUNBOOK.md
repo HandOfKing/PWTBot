@@ -30,6 +30,19 @@ All tests should pass. Two `test_replay_clip` tests skip unless `clips\Video_Pro
 
 ---
 
+## The desktop app (Windows) -- for anyone
+
+Download `PWT-<version>-windows.zip` from the repo's Releases page, unzip, run
+`PWT.exe`. Pick the recording, check the player names, press Start. Results
+land next to the recording (`<name> - PWT.xlsx`, `- PWT events.csv`,
+`- PWT log.txt`). `README.txt` in the zip says the same for a non-developer.
+
+Building it: push to `stage-a-fix` or push a `v*` tag. `.github/workflows/build-windows.yml`
+builds the zip on a Windows runner, bundles an English-only Tesseract, and refuses to
+publish unless `PWT.exe --selftest` passes. A tag also attaches the zip to a Release.
+
+From source: `python app\main.py` (needs Tesseract installed or `PWT_TESSERACT` set).
+
 ## The command
 
 ```
