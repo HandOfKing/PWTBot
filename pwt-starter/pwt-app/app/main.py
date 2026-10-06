@@ -455,6 +455,12 @@ def selftest(out):
 def main():
     if len(sys.argv) >= 2 and sys.argv[1] == "--selftest":
         sys.exit(selftest(sys.argv[2] if len(sys.argv) > 2 else "selftest.txt"))
+    if os.name == "nt":
+        try:                                              # sharp text on scaled (125%+) displays
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
     import tkinter as tk
     root = tk.Tk()
     try:

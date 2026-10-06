@@ -352,7 +352,7 @@ class Line:
 
     def absorb(self, other):
         """Take over another line's sightings: they were the same physical row."""
-        self.hist = sorted(self.hist + other.hist)
+        self.hist[:] = sorted(self.hist + other.hist)     # in place: events hold this list
         self.first_t, self.last_t = self.hist[0][0], max(self.last_t, other.last_t)
         self.seen += other.seen
         for k, n in other.etypes.items():

@@ -262,8 +262,7 @@ class Engine:
                 # the finish) only if the two were on screen TOGETHER -- e.g.
                 # 149.1 s: Wolverine's knock row moving up while his kill row
                 # on the same player slides in below it.
-                pl = prev.get("line")
-                together = pl is not None and any(t in seen_at for t, _ in pl.hist)
+                together = any(t in seen_at for t, _ in prev.get("seen", ()))
                 if prev["type"] == line.etype or not together:
                     self.log(f"{line.first_t:7.2f}s  feed: short row dedupe skip {k} --{line.etype}--> {v}")
                     return
@@ -284,7 +283,10 @@ class Engine:
         rec = dict(feed_t=round(line.first_t, 3), true_t=round(line.first_t, 3),
                    type=line.etype, weapon=line.weapon,
                    killer=k, victim=v, raw_ocr=raw_ocr,
-                   conf=conf, source="feed (approx)", drop=None, round_no=rnd, line=line)
+                   conf=conf, source="feed (approx)", drop=None, round_no=rnd,
+                   # the line's LIVE sighting list (it keeps growing after this event is
+                   # recorded), not the Line itself, which holds image crops
+                   seen=line.hist)
         rec["id"] = lm.add_event(dict(
             true_time_s=rec["true_t"], feed_time_s=rec["feed_t"], time_source=rec["source"],
             event_type=rec["type"],
