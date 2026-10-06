@@ -106,7 +106,7 @@ class Engine:
                 self._live(t, frame)
             elif self.state == "ROUND_LIVE":
                 self._banner_missing(t)
-            self._feed(t, frame)
+            self._feed(t, frame, fallback=(st != "live"))
         self.t_cpu += time.perf_counter() - c0
 
     # ------------------------------------------------------------------ match / rounds
@@ -203,8 +203,13 @@ class Engine:
                 break
 
     # ------------------------------------------------------------------ kill feed
-    def _feed(self, t, frame):
-        rows = self.feed.rows(frame)
+    def _feed(self, t, frame, fallback=True):
+        # A11's in-run text search runs only off live play. Every feed row the
+        # panel detector missed on Video_Project_9 was at a round end (screen
+        # fading, rows on screen < 0.5 s); during live play it mostly found
+        # in-world nameplates drifting past the feed, and one of those stole a
+        # real row's identity (37.9 s) and split it into two events.
+        rows = self.feed.rows(frame, fallback=fallback)
         for line in self.tracker.update(t, rows):
             self._confirm(line)
 
@@ -237,6 +242,32 @@ class Engine:
 
         conf = round(min(kc, vc) if (k and v) else max(kc, vc), 2)
 
+        if line.short:
+            # A row seen for less than min_seen_s (a round end cutting away).
+            # Strict: two different roster names, and not the same pair as an
+            # event already recorded within the dedupe window -- even of another
+            # type, since the first frames of a row sliding in can lack its
+            # knock / tombstone icon and would read as a second kill. The one
+            # exception is a row that was on screen at the same time (below).
+            if not (k and v and k != v):
+                self.log(f"{line.first_t:7.2f}s  feed: short row ignored ({raw_ocr!r})")
+                return
+            seen_at = {t for t, _ in line.hist}
+            for prev in reversed(self.events):
+                if abs(line.first_t - prev["feed_t"]) > DEDUPE_WINDOW:
+                    continue
+                if (prev["killer"], prev["victim"]) != (k, v):
+                    continue
+                # Same pair, different type is a real second row (knock, then
+                # the finish) only if the two were on screen TOGETHER -- e.g.
+                # 149.1 s: Wolverine's knock row moving up while his kill row
+                # on the same player slides in below it.
+                pl = prev.get("line")
+                together = pl is not None and any(t in seen_at for t, _ in pl.hist)
+                if prev["type"] == line.etype or not together:
+                    self.log(f"{line.first_t:7.2f}s  feed: short row dedupe skip {k} --{line.etype}--> {v}")
+                    return
+
         # A8: dedupe — skip if same (killer, victim, type) within DEDUPE_WINDOW
         if k and v:
             key = (k, v, line.etype)
@@ -253,7 +284,7 @@ class Engine:
         rec = dict(feed_t=round(line.first_t, 3), true_t=round(line.first_t, 3),
                    type=line.etype, weapon=line.weapon,
                    killer=k, victim=v, raw_ocr=raw_ocr,
-                   conf=conf, source="feed (approx)", drop=None, round_no=rnd)
+                   conf=conf, source="feed (approx)", drop=None, round_no=rnd, line=line)
         rec["id"] = lm.add_event(dict(
             true_time_s=rec["true_t"], feed_time_s=rec["feed_t"], time_source=rec["source"],
             event_type=rec["type"],

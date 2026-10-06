@@ -82,17 +82,27 @@ class FeedReader:
         self.glyph_h = (f.get("glyph_h_min", 0), f.get("glyph_h_max", 10 ** 6))
         self.glyph_h_std_max = f.get("glyph_h_std_max", 10 ** 6)
         self.row_detect = f.get("row_detect", "text")   # "text" | "panel"
+        # A11: rows inside an over-tall dark run, found by their text. Off unless
+        # the profile sets ink_fallback (see _ink_rows).
+        self.ink_fallback = f.get("ink_fallback", False)
+        self.ink_row_h = f.get("ink_row_h", 34)
+        self.ink_band_h = f.get("ink_band_h", [8, 26])
+        self.ink_start_x = f.get("ink_start_x", [114, 130])
         self.icon_thresh = f.get("icon_thresh", 0.62)
         self.weapon_thresh = f.get("weapon_thresh", 0.80)
         self.icons = load_icons(profile.templates / "icons")
 
-    def rows(self, frame):
+    def rows(self, frame, fallback=True):
+        """Feed rows on this frame. fallback=False switches the A11 in-run text
+        search off for this frame (the engine uses it only off live play)."""
         x0, y0, x1, y1 = self.box
         crop = frame[y0:y1, x0:x1]
         g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         m = white_mask(crop)
         out = []
-        for ry0, ry1 in self._row_bands(m, g):
+        for band in self._row_bands(m, g, fallback):
+            ry0, ry1 = band[:2]
+            via_ink = len(band) > 2                  # found by the A11 fallback
             # A2: reject empty boxes. The panel detector fires on flat dark
             # scenery too (18-29% of hits on real footage). A real feed row inks
             # 200+ columns; an empty panel inks almost none, so 5 was far too
@@ -110,6 +120,14 @@ class FeedReader:
             # gun, or a headshot crosshair, matches nothing. Dropping those rows
             # is what reduced a real 6v6 recording to zero events.
             icons, icon_scores = self._icons(m, ry0, ry1)
+            if via_ink and not icons:
+                # A11 rows only. The fallback also finds in-world nameplates
+                # ("1 | RGODxEMPEROR" on a blue bar) drifting across the feed's
+                # left edge; on Video_Project_9 every junk row it added matched
+                # no icon, and every real feed row it added matched a gun, knock
+                # or tombstone. Panel-detected rows are never gated (A3): this
+                # can only decline a row that, without the fallback, nobody saw.
+                continue
             a, b = max(0, ry0 - 2), ry1 + 2
             r = Row(y=ry0 + y0, h=ry1 - ry0, icons=tuple(c[3] for c in icons),
                     icon_scores={c[3]: c[0] for c in icons},
@@ -139,7 +157,7 @@ class FeedReader:
             return False
         return float(np.std(hs)) <= self.glyph_h_std_max
 
-    def _row_bands(self, m, g):
+    def _row_bands(self, m, g, fallback=True):
         """Pick the row detector this footage needs (profile: feed.row_detect).
 
         'panel' -- scan the panel's flat dark left padding. Required for
@@ -158,7 +176,7 @@ class FeedReader:
         """
         if self.row_detect == "text":
             return self._text_bands(m)
-        return self._feed_boxes(g)
+        return self._feed_boxes(g, m if fallback else None)
 
     def _text_bands(self, m):
         """Original detector: runs of text density, left-aligned to the feed."""
@@ -179,7 +197,7 @@ class FeedReader:
             y += 1
         return out
 
-    def _feed_boxes(self, g):
+    def _feed_boxes(self, g, m=None):
         """A1: detect feed rows by the dark semi-transparent panel."""
         px0 = self.pad[0] - self.box[0]       # convert absolute to crop-relative
         px1 = self.pad[1] - self.box[0]
@@ -199,6 +217,41 @@ class FeedReader:
                     y += 1
                 if self.h_min <= y - s <= self.h_max:
                     out.append((s, y))
+                elif y - s > self.h_max and self.ink_fallback and m is not None:
+                    out += self._ink_rows(m, s, y)
+            y += 1
+        return out
+
+    def _ink_rows(self, m, s, e):
+        """A11: rows inside a dark run too tall to be one row.
+
+        The panel detector needs scenery that is brighter than the panel's
+        padding. Against a dark wall, at night, or in the round-end dim the
+        whole feed band is one dark run and it found NOTHING -- which is where
+        all six NO_FEED_ROW eliminations in Video_Project_9 were (rows plainly
+        readable, e.g. 152.0 s and 155.75 s). Inside such a run, find the rows
+        by their text instead: a band of white-mask ink of text height whose
+        ink starts where a left-aligned killer name starts (most in-world
+        nameplates drifting through the band start far to the right; one at
+        the left edge is declined in rows() for matching no icon). The box is
+        centred on the text with the panel's usual height, so tracking sees
+        the same geometry whichever detector found the row. Everything
+        downstream (ink, text-shape, OCR, roster) still has to accept it.
+        """
+        x0 = self.box[0]
+        a, b = self.ink_start_x[0] - x0, self.ink_start_x[1] - x0
+        prof = m[s:e, 10:440].sum(1)
+        out, y, H = [], 0, len(prof)
+        while y < H:
+            if prof[y] >= 3:
+                t0 = y
+                while y < H and prof[y] >= 2:
+                    y += 1
+                th = y - t0
+                if self.ink_band_h[0] <= th <= self.ink_band_h[1] and m[s + t0:s + y, a:b].any():
+                    c = s + t0 + th // 2
+                    r0 = max(0, c - self.ink_row_h // 2)
+                    out.append((r0, min(m.shape[0], r0 + self.ink_row_h), "ink"))
             y += 1
         return out
 
@@ -285,9 +338,14 @@ class Line:
     etypes: dict = field(default_factory=dict)        # etype -> sightings that showed it
     weapons: dict = field(default_factory=dict)       # weapon -> sightings that named it
     ocr_t: float = None                               # time of the latest OCR sample
+    masks: list = field(default_factory=list)         # (row_mask, crop) of early sightings, for short lines
+    short: bool = False                               # confirmed via the short-line path (see LineTracker)
+    folded: bool = False                              # absorbed into another line; never emit
 
     def sighted(self, t, r):
         self.hist.append((t, r.y + r.h / 2))     # centre: the panel's top edge jitters, its middle doesn't
+        if len(self.masks) < 12:
+            self.masks.append((r.row_mask, r.crop))
         self.etypes[r.etype] = self.etypes.get(r.etype, 0) + 1
         if r.weapon:
             self.weapons[r.weapon] = self.weapons.get(r.weapon, 0) + 1
@@ -398,10 +456,12 @@ class LineTracker:
         self.pool = ThreadPoolExecutor(max_workers=workers)
         self.waiting = []
         self.recent = []            # confirmed lines, kept while a fragment of them could still turn up
+        self.short_min_seen = 2     # sightings a short line needs before it is even read
         self.merged = 0             # fragments folded into another line (reported by the engine)
 
     def update(self, t, rows):
         """Feed one frame's rows. Returns lines confirmed on this frame."""
+        gone = [l for l in self.lines if t - l.last_t > self.gap_s]
         live = [l for l in self.lines if t - l.last_t <= self.gap_s]
         self.lines = live
         self.recent = [l for l in self.recent if t - l.last_t <= self.gap_s]
@@ -458,7 +518,43 @@ class LineTracker:
                 newly.append(l)
                 self.waiting.remove(l)
                 self.recent.append(l)
+        newly += self._short_lines(gone)
         return newly
+
+    # -- short lines ---------------------------------------------------------
+    def _short_lines(self, gone):
+        """Lines that left the screen before min_seen_s.
+
+        At a round end the camera cuts away, so the last rows of a round are
+        often on screen for 0.07-0.3 s (measured on Video_Project_9). They never
+        reach min_seen_s and used to vanish, leaving their eliminations as
+        NO_FEED_ROW. Such a line is now read once it is gone and handed over
+        marked `short`; the engine accepts it ONLY if it reads as two different
+        roster names (see Engine._confirm). Nothing short is ever emitted on
+        weaker evidence.
+        """
+        out = []
+        for l in gone:
+            if l.confirmed or l.folded or l in self.waiting or len(l.hist) < self.short_min_seen:
+                continue
+            if not l.icons:
+                # Never matched an icon. Seen for real at 56.6 s: a nameplate
+                # drifting below the feed, chained to one frame of a knock row
+                # whose icons a second nameplate hid; that one frame read as
+                # two names. Like A11, this path only adds rows nobody saw, so
+                # asking it for icon evidence costs the main path nothing (A3).
+                continue
+            if self._fold_fragment(l):
+                continue
+            n = len(l.masks)
+            pick = sorted({n // 4, n // 2, (3 * n) // 4}) if n > 3 else range(n)
+            l.futures = [self.pool.submit(names.ocr_mask, l.masks[i][0]) for i in pick][:self.ocr_samples]
+            for f in l.futures:
+                f.result()
+            l.best_crop = l.masks[pick[len(pick) // 2]][1] if n else None
+            l.short = l.confirmed = True
+            out.append(l)
+        return out
 
     # -- fragments ---------------------------------------------------------
     @staticmethod
@@ -505,6 +601,7 @@ class LineTracker:
             else:
                 host, frag = line, other
             host.absorb(frag)
+            frag.folded = True
             self.merged += 1
             for lst in (self.lines, self.waiting, self.recent):
                 lst[:] = [x for x in lst if x is not frag]
@@ -525,4 +622,5 @@ class LineTracker:
             self.recent.append(l)
             out.append(l)
         self.waiting = []
+        out += self._short_lines(list(self.lines))
         return out

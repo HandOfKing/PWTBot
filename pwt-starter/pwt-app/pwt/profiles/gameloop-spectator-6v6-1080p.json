@@ -43,7 +43,17 @@
     "min_glyphs": 8,
     "glyph_h_min": 7,
     "glyph_h_max": 20,
-    "glyph_h_std_max": 6
+    "glyph_h_std_max": 6,
+    "ink_fallback": true,
+    "ink_row_h": 34,
+    "ink_band_h": [
+      8,
+      26
+    ],
+    "ink_start_x": [
+      114,
+      130
+    ]
   },
   "remaining_box": [
     186,
@@ -222,5 +232,6 @@
       "note": "placeholder - calibrate on a real 8v8 board"
     }
   },
-  "max_align_lag_s": 8.0
+  "max_align_lag_s": 12.0,
+  "max_align_lag_note": "Feed rows are paced ~2.5 s apart, so a multi-kill backs the queue up: on Video_Project_9 four deaths at 146.5-147.0 s were printed until 155.4 s (8.9 s). 8.0 left the last one unaligned and its drop counted twice. Same-round guard still applies."
 }

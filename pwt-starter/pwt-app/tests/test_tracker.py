@@ -112,3 +112,17 @@ def test_partial_readings_combine_by_role():
     ln.futures = [F("ine =P PARAbloodthirs")]
     k, _, v, _, _ = ln.vote(ROSTER)
     assert (k, v) == (None, "PARABloodthirs")
+
+
+def test_short_row_is_read_once_gone_and_needs_icons():
+    # A round-end row on screen for 0.2 s (camera cuts away): too short for
+    # min_seen_s, so it comes out of the short-line path once it is gone. A
+    # short line that never matched an icon (a drifting nameplate) does not.
+    def script(t):
+        if 1.0 <= t < 1.2:
+            return [_row(438, ("weapon_UMP45",)), _row(500, ())]
+        return []
+    lines, _ = _run(script, 24, "RGODxEMPEROR =P PARABloodthirs")
+    assert [(l.short, l.etype, round(l.hist[0][1])) for l in lines] == [(True, "kill", 455)]
+    lines, _ = _run(script, 4, "RGODxEMPEROR =P PARABloodthirs")
+    assert lines == []                              # one sighting at 4 fps: not even read
