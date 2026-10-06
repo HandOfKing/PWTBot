@@ -50,8 +50,8 @@ video file
    │     runs to completion and emits plausible, wrong data.
    │
    ├─ 1  DECODE             capture/sources.py:FileReplaySource
-   │     → (t, BGR frame) at 4 fps. Streams; never loads the whole video.
-   │     t = frame index / 4. This is the master clock.
+   │     → (t, BGR frame) at --fps (default 12). Streams; never loads the whole video.
+   │     t = sample index / fps. This is the master clock.
    │
    ├─ 2  SCREEN STATE       readers/screens.py:ScreenReader
    │     → live | dimmed | scoreboard | other
@@ -101,6 +101,10 @@ These are not preferences. Breaking any one has already cost real accuracy.
 2. **Icons classify; they never gate.** `templates/icons/` holds a handful of
    weapons. A row matching no icon is still a valid feed row. Reinstating
    `if not icons: continue` took a real recording from 30 kills to **0**.
+   *Narrow exception (2026-10-05):* the two paths that only ADD rows the main
+   detector never saw -- the A11 in-run text search at round ends and short
+   lines (on screen < min_seen_s) -- require an icon. Without it they mostly
+   found in-world nameplates. They can never remove a row the main path found.
 3. **The roster finds names; it does not validate them.** OCR never reads these
    names correctly. Fuzzy-match every token to the nearest roster entry. Using
    the roster as a membership test gives 0%.
@@ -110,8 +114,9 @@ These are not preferences. Breaking any one has already cost real accuracy.
 5. **Coordinates live in profile JSON, never in code.** One profile per footage
    geometry. No single parameter set serves two different recordings — do not
    search for one.
-6. **The 4 fps frame index is the master clock.** The in-game timer is a
-   cross-check. Feed time is not event time; it lags up to 3.5 s and can arrive
+6. **The sampled frame index is the master clock** (t = index / fps). The
+   in-game timer is a cross-check. The table must not depend on the sampling
+   rate: anything timed in frames instead of video seconds breaks this. Feed time is not event time; it lags up to 3.5 s and can arrive
    out of causal order.
 7. **Read pixels only.** Never touch the game's memory, files or network.
 8. **Mismatched input must fail loudly.** Silent wrong output is the worst
@@ -139,11 +144,14 @@ These are not preferences. Breaking any one has already cost real accuracy.
 A change is acceptable only if all of these hold:
 
 - `python tests/run_all.py` — all pass.
-- **2v2 regression:** the ground truth in `docs/kill-feed-reference.md` still
-  reproduces (12.50 s knock, tombstone, UMP45 kill, 2 eliminations for
-  TheWølverine matching the scoreboard).
+- **Elimination count** on `Video_Project_9.mp4`: events of type `kill` +
+  `eliminated_knocked` equal the Remaining counter's 14 drops at `--fps` 4, 12
+  and 24, and the event CSV is identical when the run is repeated.
 - **6v6 benchmark** on `Video_Project_9.mp4`: ≥20 feed rows resolve both names,
   and `KG696969` is among the names read correctly.
+- *(The 2v2 regression on `Video_Project_7.mp4` was dropped 2026-10-05 at
+  Chirag's call: that clip is not the footage the tool is for. The `text`
+  detector and its profile stay, untested.)*
 - No new unflagged row whose killer equals its victim.
 - Any claim about accuracy is **measured and stated with its number**, not argued.
 

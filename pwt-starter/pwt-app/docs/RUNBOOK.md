@@ -54,7 +54,7 @@ python -m pwt where                       where the database lives
 ### Flags worth knowing
 | Flag | Default | Notes |
 |---|---|---|
-| `--fps` | `4` | Leave it. Every HUD coordinate was calibrated at 4 fps. Raising it costs time and buys nothing. |
+| `--fps` | `12` | Samples per second of video. The table is the same at any rate (rows are tracked and read on video time, not frame counts), but rows on screen under ~0.25 s -- the last rows of a round, as the camera cuts away -- need 12+. On `Video_Project_9.mp4`: 4 fps names 9 of 14 eliminations, 12 and 24 fps name all 14; 24 fps costs ~1.5x the time of 12 for one extra knock. |
 | `--profile` | `gameloop-windowed-1080p` | **You must pass the spectator profile.** The default is the old 2v2 one. |
 | `--csv` | off | Flat events table. |
 | `--roster` | empty | Omit it and names are matched against the saved roster, or learned from the scoreboard. Passing it explicitly is more reliable. |

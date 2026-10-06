@@ -24,7 +24,8 @@ This tool analyses **recorded video only**. Do not build, restore or extend:
 First-person **spectator**, round-based WoW room, 6v6, recorded with OBS from GameLoop.
 The kill feed **cannot be enlarged** — that option only exists for a player in the match, not a
 spectator. Plan for ~16px text at 1080p. Recording at 1440p or 2160p is the single biggest
-lever on OCR accuracy; frame rate is nearly irrelevant because we sample at 4 fps.
+lever on OCR accuracy. Replay samples at 12 fps by default (`--fps`); the recording's own
+frame rate barely matters.
 
 ## Rules
 - Read pixels only. Never touch the game's memory, files or network.
@@ -32,7 +33,9 @@ lever on OCR accuracy; frame rate is nearly irrelevant because we sample at 4 fp
   resolved are emitted with `flag=UNRESOLVED` and their raw OCR, never dropped.
 - **Icons classify, they never gate.** `templates/` holds a handful of weapons; a kill with any
   other gun matches nothing. A row with zero icon matches is still a valid feed row. Reinstating
-  `if not icons: continue` takes a real recording from 30 kills to 0.
+  `if not icons: continue` takes a real recording from 30 kills to 0. (Narrow exception: the two
+  paths that only *add* rows the main detector missed -- round-end text search and short lines --
+  require an icon; see ARCHITECTURE invariant 2.)
 - **The roster finds the names, it does not validate them.** OCR never reads these names
   correctly (`KG696969` → `KGBSEIES`). Fuzzy-match every token to the roster through the glyph
   fold in `names.py` and take the nearest, subject to a score threshold *and* a margin over the
@@ -41,7 +44,9 @@ lever on OCR accuracy; frame rate is nearly irrelevant because we sample at 4 fp
   `12` → `2`, `11` → `1`.
 - HUD coordinates live in layout-profile JSON, never in code. Different footage needs a
   different profile — see "Profiles" below. Do not tune one profile to satisfy two recordings.
-- Master clock = frame index at 4 fps. The in-game timer is a cross-check only.
+- Master clock = sampled frame index (t = index / fps). The in-game timer is a cross-check only.
+  - The answer must not depend on `--fps`: eliminations must equal the Remaining counter's
+    drops at every rate. Track and read on video time, never on frame counts.
   - Eliminations take their true time from drops in the **Remaining** counter.
   - Knocks keep the time their kill-feed line appeared, marked approximate.
   - Feed time is not event time: it lags up to 3.5s and can arrive out of causal order.

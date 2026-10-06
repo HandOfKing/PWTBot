@@ -64,7 +64,7 @@ def main(argv=None):
     ap.add_argument("--db", help="database file (default: app data folder)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("where")
-    s = sub.add_parser("replay"); s.add_argument("file"); s.add_argument("--fps", type=float, default=4)
+    s = sub.add_parser("replay"); s.add_argument("file"); s.add_argument("--fps", type=float, default=12)
     s.add_argument("--csv", help="also write the events table to this CSV")
     s.add_argument("--profile", default="gameloop-windowed-1080p"); s.add_argument("--roster", nargs="*", default=[])
     s.add_argument("--recorded-at"); s.add_argument("--realtime", action="store_true"); s.add_argument("--quiet", action="store_true")
