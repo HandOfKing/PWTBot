@@ -53,7 +53,12 @@ jobs:
       - name: Tests
         run: |
           tesseract --version
-          python tests/run_all.py
+          python tests/run_all.py | Tee-Object -FilePath tests.txt
+          $code = $LASTEXITCODE
+          # annotations are readable through the GitHub API (job logs are not, from some networks)
+          $t = (Select-String -Path tests.txt -Pattern '^(skip|FAIL)|passed|FAILED' | ForEach-Object { $_.Line }) -join "`n"
+          "::notice title=tests::" + ($t -replace '%','%25' -replace "`r",'' -replace "`n",'%0A')
+          exit $code
 
       - name: Build with PyInstaller (one folder, no console)
         run: >
@@ -84,6 +89,7 @@ jobs:
           $out = Join-Path $PWD "selftest.txt"
           $p = Start-Process -FilePath "dist\PWT\PWT.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
           if (Test-Path $out) { Get-Content $out } else { "no self-test report written" }
+          if (Test-Path $out) { "::notice title=self-test::" + ((Get-Content $out -Raw) -replace '%','%25' -replace "`r",'' -replace "`n",'%0A') }
           if ($p.ExitCode -ne 0) { throw "self-test failed (exit $($p.ExitCode))" }
           if (-not (Select-String -Path $out -Pattern "vendor\\tesseract" -Quiet)) { throw "self-test did not use the bundled Tesseract" }
 
@@ -91,7 +97,10 @@ jobs:
         run: |
           $v = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
           Compress-Archive -Path dist\PWT -DestinationPath "PWT-$v-windows.zip"
-          Get-ChildItem PWT-*-windows.zip | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+          $z = Get-ChildItem PWT-*-windows.zip | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
+          $d = "{0:N1} MB unzipped" -f ((Get-ChildItem dist\PWT -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB)
+          $top = (Get-ChildItem dist\PWT | ForEach-Object { $_.Name }) -join ", "
+          "::notice title=package::$z, $d. Top level: $top"
 
       - uses: actions/upload-artifact@v4
         with:
