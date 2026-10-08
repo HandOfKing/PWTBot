@@ -8,8 +8,9 @@
 - Events land in SQLite, browsable by date and exportable to Excel.
 
 **Read `docs/ARCHITECTURE.md` first — it is the contract: the pipeline, the
-invariants, and the definition of done. Then `docs/RUNBOOK.md` to run it, and
-`docs/roster.md` for player spellings.**
+invariants, and the definition of done. Then `docs/DECISIONS.md` (what is decided and what was
+already tried and rejected), the newest `docs/handoff/HANDOFF-*.md` (status and next steps),
+`docs/RUNBOOK.md` to run it, and `docs/roster.md` for player spellings.**
 
 ## Scope — read this before proposing work
 This tool analyses **recorded video only**. Do not build, restore or extend:
@@ -88,7 +89,12 @@ on a Remaining reset after a board, and a round board for an unseen round create
 - `pwt/profiles/gameloop-spectator-6v6-1080p.json`: coordinates.
 - `pwt/templates/`: icons and digits. Add digit shapes with `tools/harvest_board_digits.py` / `tools/harvest_remaining_digits.py`.
 - `pwt/db.py`: `LiveMatch`, rename/alias.
-- Status and findings: `docs/PWT_BRIEF.md` §12 and §15.
+- Status: the newest `docs/handoff/HANDOFF-*.md`. Why things are the way they are, and the ideas
+  already rejected with their numbers: `docs/DECISIONS.md`. Numbers over time: `docs/METRICS.md`.
+- `docs/PWT_BRIEF.md` is the SUPERSEDED live-capture design (2026-10-02). Historical only; do not build from it.
+- Claude Code helpers (repo root `.claude/`): agents `pwt-verifier`, `pwt-reviewer`, `pwt-calibrator`,
+  `pwt-run-analyst`; skills `/start-session`, `/handoff`, `/experiment`, `/measure`, `/cut-clip`,
+  `/harvest-templates`. Hooks in `.claude/hooks/` block out-of-scope code and ask before contract files change.
 
 ## Commands (keep these working)
 ```

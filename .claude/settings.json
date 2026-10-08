@@ -1,0 +1,54 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tests/run_all.py)",
+      "Bash(python tests/run_all.py:*)",
+      "Bash(python -m pwt --db:*)",
+      "Bash(python -m pwt list:*)",
+      "Bash(python -m pwt show:*)",
+      "Bash(python -m pwt where)",
+      "Bash(python tools/harvest_remaining_digits.py:*)",
+      "Bash(python tools/harvest_board_digits.py:*)",
+      "Bash(python .claude/hooks/guard.py --selftest)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch --show-current)",
+      "Bash(ffprobe:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git add -f:*)",
+      "Bash(git add --force:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/session_start.py"],
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard.py"],
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # PWT architecture
 
-The stable contract. Current *status* lives in `claude/HANDOFF-*.md`; this file
+The stable contract. Current *status* lives in `docs/handoff/HANDOFF-*.md`; this file
 describes what the system **is** and the rules it must obey. It should change
 rarely. If a session proposes something that contradicts this file, the file
 wins unless Chirag says otherwise.
@@ -176,7 +176,9 @@ A change is acceptable only if all of these hold:
 | `CLAUDE.md` | what a coding session must know on line 1 | rarely |
 | `docs/RUNBOOK.md` | how to run it | when the CLI changes |
 | `docs/roster.md` | exact player spellings | when players change |
-| `claude/HANDOFF-*.md` (project) | current status, what's left | every session |
+| `docs/DECISIONS.md` | decisions with dates, measured rules, tried-and-rejected ideas with their numbers | when Chirag decides or an experiment ends |
+| `docs/METRICS.md` | every benchmark and full-match result, by commit | every measurement |
+| `docs/handoff/HANDOFF-*.md` | current status, what's left (newest wins) | every session |
 | `claude/spectator-feed-reference.md` (project) | 6v6 HUD calibration + evidence | when recalibrated |
 
 Anything not in this table is historical. Do not build from it.
@@ -185,10 +187,11 @@ Anything not in this table is historical. Do not build from it.
 
 ## 8. Working agreement for sessions
 
-- Read `CLAUDE.md`, this file, and the newest `HANDOFF-*` before proposing work.
+- Read `CLAUDE.md`, this file, `DECISIONS.md` and the newest `handoff/HANDOFF-*` before proposing work.
+- Anything in DECISIONS "Tried and rejected" is not proposed again without new evidence, named as such.
 - Follow the handoff's numbered next steps in order. If a step turns out to be
   blocked, **say so and stop** — do not substitute a different step silently.
-- Measure before claiming. "It's better" without a number is not a result.
+- Measure before claiming. "It's better" without a number is not a result. The number goes in `METRICS.md`.
 - Prefer the smallest change that satisfies the goal. This codebase has been
   broken more by helpful rewrites than by missing features.
 - When an earlier document is wrong, correct it in place and say what changed.
