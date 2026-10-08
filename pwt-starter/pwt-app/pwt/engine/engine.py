@@ -25,7 +25,8 @@ DEDUPE_WINDOW = 5.0      # A8: collapse same (killer, victim, type) within this 
 LATE_ROW_S = 8.0         # a feed row first seen this soon after a round starts is the last round's (_row_round)
 LATE_ELIM_S = 15.0       # ... and so is a kill row this soon, while its round has had no death yet
 LATE_LAG_S = 25.0        # the oldest death a late row (or the end-of-recording pass) may claim
-COUNTER_AFTER_S = 1.0    # the Remaining counter may change up to this long AFTER the feed row appears:
+TIMELY_S = 1.5           # a row this soon after a free death is that death's row (_align)
+COUNTER_AFTER_S = 1.0   # the Remaining counter may change up to this long AFTER the feed row appears:
                          # the new digit animates in and is unreadable for a few frames. 2026-10-04
                          # 22-55-47 at 24 fps: rows 0.41 s before their drop were flagged NO_DROP.
 
@@ -348,7 +349,11 @@ class Engine:
         self.events.append(rec)
         if not (k and v):
             self.pending.append(rec)
-        if rec["type"] in ELIM_TYPES:
+        if rec["type"] in ELIM_TYPES and (k or v):
+            # A row with neither name read (a text-shaped patch of scenery, or a row too dim to
+            # read) must not take a death before the named rows have had theirs: 22-55-47 round 20,
+            # a junk row at 9.0 s took the 9.67 s death and the real row at 10.0 s became NO_DROP.
+            # _settle_eliminations gives it any death left over at the end.
             self._align(rec)
         self.log(f"{line.first_t:7.2f}s  feed: {k or '?'} --{rec['type']}/{line.weapon or '-'}--> {v or '?'}"
                  f"   (true {rec['true_t']}s, {rec['source']})"
@@ -404,11 +409,21 @@ class Engine:
         helmets are not measured for 6v6 yet, so these guards carry the load.
         """
         team = self.team_of.get(rec["victim"]) if rec["victim"] else None
+        ok = []
         for d in self.drops:
             if d["used"] or d["t"] > rec["feed_t"] + COUNTER_AFTER_S: continue
             if d.get("round") is not None and d["round"] != rec.get("round_no", self.round_no): continue
             if rec["feed_t"] - d["t"] > (LATE_LAG_S if rec.get("late") else self.max_align_lag_s): continue
             if team and d["team"] and d["team"] != team: continue
+            ok.append(d)
+        # A row normally appears within a second of ITS death (22-55-47, round 20: 28.3 -> 28.5,
+        # 37.5 -> 37.8, 39.5 -> 40.0). When a death just before the row is free, it is this row's.
+        # Oldest-first only for backlogged rows (a team wipe prints ~2.5 s apart), and it used to
+        # pair a row with an older death whose own row was never read, shifting every later pair.
+        timely = [d for d in ok if rec["feed_t"] - d["t"] <= TIMELY_S]
+        if timely:
+            ok = [max(timely, key=lambda d: (d["t"] <= rec["feed_t"], d["t"]))]
+        for d in ok[:1]:
             d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
             rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"
             self.lm.update_event_time(rec["id"], round(d["t"], 3), rec["source"])

@@ -87,6 +87,7 @@ class FeedReader:
         self.ink_row_h = f.get("ink_row_h", 34)
         self.ink_band_h = f.get("ink_band_h", [8, 26])
         self.ink_start_x = f.get("ink_start_x", [114, 130])
+        self.weapon_blob_w = f.get("weapon_blob_w", 45)
         self.icon_thresh = f.get("icon_thresh", 0.62)
         self.weapon_thresh = f.get("weapon_thresh", 0.80)
         self.icons = load_icons(profile.templates / "icons")
@@ -119,7 +120,7 @@ class FeedReader:
             # gun, or a headshot crosshair, matches nothing. Dropping those rows
             # is what reduced a real 6v6 recording to zero events.
             icons, icon_scores = self._icons(m, ry0, ry1)
-            if via_ink and not icons:
+            if via_ink and not icons and not self._weapon_blob(m, ry0, ry1):
                 # A11 rows only. The fallback also finds in-world nameplates
                 # ("1 | RGODxEMPEROR" on a blue bar) drifting across the feed's
                 # left edge; on Video_Project_9 every junk row it added matched
@@ -159,9 +160,9 @@ class FeedReader:
     def _row_bands(self, m, g, fallback=True):
         """Feed rows by the panel's flat dark left padding (A1). Text density finds moving scenery
         instead of rows in first-person spectator footage; the padding does not move."""
-        return self._feed_boxes(g, m if fallback else None)
+        return self._feed_boxes(g, m, in_runs=fallback)
 
-    def _feed_boxes(self, g, m=None):
+    def _feed_boxes(self, g, m=None, in_runs=True):
         """A1: detect feed rows by the dark semi-transparent panel."""
         px0 = self.pad[0] - self.box[0]       # convert absolute to crop-relative
         px1 = self.pad[1] - self.box[0]
@@ -181,10 +182,28 @@ class FeedReader:
                     y += 1
                 if self.h_min <= y - s <= self.h_max:
                     out.append((s, y))
-                elif y - s > self.h_max and self.ink_fallback and m is not None:
+                elif y - s > self.h_max and self.ink_fallback and m is not None and in_runs:
                     out += self._ink_rows(m, s, y)
             y += 1
+        if self.ink_fallback and m is not None:
+            # A12: rows the panel test cannot see at all (2026-10-07, round 20 of 22-55-47: four
+            # eliminations, rows plainly on screen for ~10 s). Their name starts inside the
+            # padding columns, so the padding is no longer flat and no dark run is found. Search
+            # the whole box by text; rows() keeps only bands with a weapon-sized blob (or a
+            # matched icon), so in-world nameplates still do not get through.
+            for r in self._ink_rows(m, 0, m.shape[0]):
+                if all(r[0] >= o[1] or r[1] <= o[0] for o in out):
+                    out.append(r)
         return out
+
+    def _weapon_blob(self, m, y0, y1):
+        """A12: does this band hold a weapon silhouette -- one wide, flat white blob between
+        the names? Letters are < 14 px wide and in-world nameplates have none."""
+        band = m[max(0, y0 - 2):y1 + 2].astype(np.uint8)
+        n, _, st, _ = cv2.connectedComponentsWithStats(band, connectivity=8)
+        return any(st[i, cv2.CC_STAT_WIDTH] >= self.weapon_blob_w and
+                   st[i, cv2.CC_STAT_WIDTH] >= 2.5 * st[i, cv2.CC_STAT_HEIGHT]
+                   for i in range(1, n))
 
     def _ink_rows(self, m, s, e):
         """A11: rows inside a dark run too tall to be one row.
