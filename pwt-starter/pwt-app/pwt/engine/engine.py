@@ -24,6 +24,10 @@ ELIM_TYPES = ("kill", "eliminated_knocked")
 DEDUPE_WINDOW = 5.0      # A8: collapse same (killer, victim, type) within this many seconds
 LATE_ROW_S = 8.0         # a feed row first seen this soon after a round starts is the last round's (_row_round)
 LATE_ELIM_S = 15.0       # ... and so is a kill row this soon, while its round has had no death yet
+LATE_LAG_S = 25.0        # the oldest death a late row (or the end-of-recording pass) may claim
+COUNTER_AFTER_S = 1.0    # the Remaining counter may change up to this long AFTER the feed row appears:
+                         # the new digit animates in and is unreadable for a few frames. 2026-10-04
+                         # 22-55-47 at 24 fps: rows 0.41 s before their drop were flagged NO_DROP.
 
 
 class ScoreboardWorker:
@@ -368,7 +372,7 @@ class Engine:
           - any row first seen within LATE_ROW_S of its round's start (nobody has met yet), and
           - a kill row within LATE_ELIM_S while its round has had no death: the counter drops
             before the feed prints a death, so a kill row before any drop is not this round's.
-        A late row may claim any unclaimed death of its round, however old (_align)."""
+        A late row may claim an unclaimed death of its round up to LATE_LAG_S old (_align)."""
         if not rnd or rnd < 2:
             return rnd, False
         start = next((s for s, n in self.round_starts if n == rnd), None)
@@ -378,7 +382,8 @@ class Engine:
         if since <= LATE_ROW_S:
             return rnd - 1, True
         if line.etype in ELIM_TYPES and since <= LATE_ELIM_S and not any(
-                d["round"] == rnd and d["t"] is not None and d["t"] <= line.first_t + 0.05 for d in self.drops):
+                d["round"] == rnd and d["t"] is not None and d["t"] <= line.first_t + COUNTER_AFTER_S
+                for d in self.drops):
             return rnd - 1, True
         return rnd, False
 
@@ -400,9 +405,9 @@ class Engine:
         """
         team = self.team_of.get(rec["victim"]) if rec["victim"] else None
         for d in self.drops:
-            if d["used"] or d["t"] > rec["feed_t"] + 0.05: continue
+            if d["used"] or d["t"] > rec["feed_t"] + COUNTER_AFTER_S: continue
             if d.get("round") is not None and d["round"] != rec.get("round_no", self.round_no): continue
-            if rec["feed_t"] - d["t"] > self.max_align_lag_s and not rec.get("late"): continue
+            if rec["feed_t"] - d["t"] > (LATE_LAG_S if rec.get("late") else self.max_align_lag_s): continue
             if team and d["team"] and d["team"] != team: continue
             d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
             rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"
@@ -557,7 +562,7 @@ class Engine:
         """End of the recording: every round is over, so each round's unclaimed deaths are known.
 
         A kill row that found no drop within max_align_lag_s takes the earliest unclaimed death of
-        its round before it -- the last rows of a wipe can be printed 15 s and more after the
+        its round up to LATE_LAG_S before it -- the last rows of a wipe can be printed 15 s after the
         deaths (2026-10-04 22-55-47 round 17: deaths at 1264.0 s, rows at 1275-1279 s). Without
         this the row stayed unmatched AND its death became a NO_FEED_ROW: one death, two rows.
 
@@ -570,7 +575,8 @@ class Engine:
             if rec["type"] not in ELIM_TYPES or rec.get("drop") is not None or rec.get("id") is None:
                 continue
             for d in self.drops:
-                if d["used"] or d["t"] is None or d["t"] > rec["feed_t"] + 0.05: continue
+                if d["used"] or d["t"] is None or d["t"] > rec["feed_t"] + COUNTER_AFTER_S: continue
+                if rec["feed_t"] - d["t"] > LATE_LAG_S: continue
                 if d.get("round") is not None and d["round"] != rec.get("round_no"): continue
                 d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
                 rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"
