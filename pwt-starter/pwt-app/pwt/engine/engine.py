@@ -25,6 +25,7 @@ DEDUPE_WINDOW = 5.0      # A8: collapse same (killer, victim, type) within this 
 LATE_ROW_S = 8.0         # a feed row first seen this soon after a round starts is the last round's (_row_round)
 LATE_ELIM_S = 15.0       # ... and so is a kill row this soon, while its round has had no death yet
 LATE_LAG_S = 25.0        # the oldest death a late row (or the end-of-recording pass) may claim
+BACKLOG_S = 3.5         # the feed trails a death by up to this long; an older free death is not this row's (_align)
 TIMELY_S = 1.5           # a row this soon after a free death is that death's row (_align)
 COUNTER_AFTER_S = 1.0   # the Remaining counter may change up to this long AFTER the feed row appears:
                          # the new digit animates in and is unreadable for a few frames. 2026-10-04
@@ -420,9 +421,12 @@ class Engine:
         # 37.5 -> 37.8, 39.5 -> 40.0). When a death just before the row is free, it is this row's.
         # Oldest-first only for backlogged rows (a team wipe prints ~2.5 s apart), and it used to
         # pair a row with an older death whose own row was never read, shifting every later pair.
-        timely = [d for d in ok if rec["feed_t"] - d["t"] <= TIMELY_S]
-        if timely:
-            ok = [max(timely, key=lambda d: (d["t"] <= rec["feed_t"], d["t"]))]
+        # Only when the oldest free death is too old to be this row's: the feed prints a wipe in
+        # death order, and inside that backlog (Video_Project_9 58-66 s) oldest-first is right.
+        if ok and rec["feed_t"] - ok[0]["t"] > BACKLOG_S:
+            timely = [d for d in ok if rec["feed_t"] - d["t"] <= TIMELY_S]
+            if timely:
+                ok = [max(timely, key=lambda d: (d["t"] <= rec["feed_t"], d["t"]))]
         for d in ok[:1]:
             d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
             rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"
