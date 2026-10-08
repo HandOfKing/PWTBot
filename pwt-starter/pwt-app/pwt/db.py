@@ -8,7 +8,7 @@ Where the data lives:
 import os, sys, sqlite3, re, datetime as dt
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
 
@@ -53,14 +53,29 @@ _VIEWS = ("v_events", "v_knock_outcomes", "v_elim_credit", "v_player_match", "v_
 
 
 def _migrate(conn, ver):
-    if ver < 2:
-        # v2: eliminations are credited to the latest un-revived knocker, not to
-        # whoever fired the finishing shot (see v_elim_credit in schema.sql).
-        for v in _VIEWS:
-            conn.execute(f"DROP VIEW IF EXISTS {v}")
+    # Views are rebuilt on every upgrade. v2: eliminations credited to the latest un-revived
+    # knocker (v_elim_credit). v3: scoreboard numbers from the end-of-match board (v_player_match).
+    for v in _VIEWS:
+        conn.execute(f"DROP VIEW IF EXISTS {v}")
     conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    if ver < 3:
+        _drop_pre_app_results(conn)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
+
+
+def _drop_pre_app_results(conn):
+    """v3: one version. Results written by the command-line prototype before the desktop app
+    (pipeline 0.1-*, e.g. a 2v2-layout run of a 6v6 file) are removed, with the player names
+    they invented. On Chirag's machine that was ~120 misreads ("Pyn", "kB", "PARAhJJdrv") that
+    the app then offered as the roster and matched kill-feed names against (2026-10-07)."""
+    import shutil
+    old = [r[0] for r in conn.execute("SELECT id FROM matches WHERE pipeline_version LIKE '0.1%'")]
+    for mid in old:
+        conn.execute("DELETE FROM matches WHERE id=?", (mid,))
+        shutil.rmtree(db_folder(conn) / "evidence" / f"match_{mid}", ignore_errors=True)
+    if old:
+        prune_players(conn)
 
 
 # ---------- players ----------
@@ -81,6 +96,39 @@ def get_or_create_player(conn, ign, nickname=None):
             return r["id"]
     cur = conn.execute("INSERT INTO players(ign, nickname) VALUES (?,?)", (ign, nickname))
     return cur.lastrowid
+
+
+def prune_players(conn, keep=()):
+    """Delete players nothing refers to any more (no event, scoreboard row or match), except `keep`.
+    Their aliases go with them. Returns how many were removed."""
+    keep = set(keep)
+    gone = [r["id"] for r in conn.execute(
+        """SELECT p.id, p.ign FROM players p
+           WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.killer_id = p.id OR e.victim_id = p.id)
+             AND NOT EXISTS (SELECT 1 FROM scoreboard_stats s WHERE s.player_id = p.id)
+             AND NOT EXISTS (SELECT 1 FROM match_players mp WHERE mp.player_id = p.id)""").fetchall()
+        if r["ign"] not in keep]
+    for pid in gone:
+        conn.execute("DELETE FROM players WHERE id=?", (pid,))
+    conn.commit()
+    return len(gone)
+
+
+def roster_names(conn, roster):
+    """The names to match kill-feed and scoreboard text against for one run: the roster given
+    for it plus the aliases of those players -- never every name ever stored. Misreads stored
+    by older runs used to sit in that list, steal matches ("PARABloodthirs --kill--> Pyn") and,
+    being near-copies of real names, push real matches under the margin rule."""
+    out = set()
+    for n in roster:
+        n = (n or "").strip()
+        if not n: continue
+        out.add(n)
+        pid = get_or_create_player(conn, n)
+        out |= {r[0] for r in conn.execute("SELECT alias FROM player_aliases WHERE player_id=?", (pid,))}
+        out.add(conn.execute("SELECT ign FROM players WHERE id=?", (pid,)).fetchone()[0])
+    conn.commit()
+    return out
 
 
 def add_alias(conn, ign, alias):
@@ -237,14 +285,23 @@ class LiveMatch:
         self.conn.commit()
         return eid
 
+    def move_events(self, event_ids, round_no):
+        """Re-assign events to a round found after they were written (a round seen only by its board)."""
+        if round_no not in self.rid: self.start_round(round_no)
+        self.conn.executemany("UPDATE events SET round_id=? WHERE id=?", [(self.rid[round_no], i) for i in event_ids])
+        self.conn.commit()
+
     def update_event_time(self, event_id, true_time_s, time_source):
         """Live alignment can improve a time after the line was saved (e.g. a Remaining drop matched later)."""
         self.conn.execute("UPDATE events SET true_time_s=?, time_source=? WHERE id=?", (true_time_s, time_source, event_id))
         self.conn.commit()
 
     def add_stats(self, stats, round_no=None):
-        """round_no=None -> end-of-match scoreboard."""
+        """round_no=None -> end-of-match scoreboard. A later end-of-match board replaces an earlier
+        one (round_id NULL is never equal in SQL, so the UNIQUE key cannot do it)."""
         rid = self.rid.get(round_no) if round_no is not None else None
+        if round_no is None:
+            self.conn.execute("DELETE FROM scoreboard_stats WHERE match_id=? AND round_id IS NULL", (self.id,))
         for s in stats:
             self.conn.execute(
                 "INSERT OR REPLACE INTO scoreboard_stats(match_id, round_id, player_id, stat_name, value, confidence)"
@@ -274,7 +331,8 @@ def recover_interrupted(conn):
 def list_matches(conn, date_from=None, date_to=None, player=None):
     """Matches newest first, with headline numbers. Dates are 'YYYY-MM-DD' (inclusive)."""
     q = """SELECT m.id, m.recorded_at, m.source_file, m.room_code, m.mode, m.team_size, m.rounds_played, m.winner_team, m.status,
-                  (SELECT COUNT(*) FROM events e WHERE e.match_id = m.id AND e.event_type IN ('kill','eliminated_knocked')) AS eliminations,
+                  (SELECT COUNT(*) FROM events e WHERE e.match_id = m.id AND e.event_type IN ('kill','eliminated_knocked')
+                      AND IFNULL(e.flag, '') <> 'NO_DROP') AS eliminations,
                   (SELECT COUNT(*) FROM events e WHERE e.match_id = m.id AND e.flag IS NOT NULL AND e.reviewed = 0) AS to_review,
                   (SELECT COUNT(*) FROM match_players mp WHERE mp.match_id = m.id) AS players
            FROM matches m WHERE 1=1"""
@@ -300,13 +358,30 @@ def db_folder(conn) -> Path:
     return Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent
 
 
-def delete_match(conn, match_id):
-    """Remove a match, everything hanging off it (cascade), and its evidence images -- the ones
-    beside THIS database, never another data folder's."""
+def delete_match(conn, match_id, keep_players=()):
+    """Remove a match, everything hanging off it (cascade), its evidence images -- the ones
+    beside THIS database, never another data folder's -- and players only it referred to
+    (misread names), except `keep_players`."""
     import shutil
     with conn:
         conn.execute("DELETE FROM matches WHERE id=?", (match_id,))
     shutil.rmtree(db_folder(conn) / "evidence" / f"match_{match_id}", ignore_errors=True)
+    prune_players(conn, keep_players)
+
+
+# ---------- the player list used last time ----------
+
+def last_roster(folder=None):
+    """Names from the last run (roster.txt in the data folder), or [] if there was none."""
+    p = Path(folder or data_dir()) / "roster.txt"
+    if not p.exists(): return []
+    return [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
+
+
+def save_roster(names, folder=None):
+    p = Path(folder or data_dir()) / "roster.txt"
+    p.write_text("# the player names used for the last run, one per line\n" + "\n".join(names) + "\n",
+                 encoding="utf-8")
 
 
 def match_detail(conn, match_id):

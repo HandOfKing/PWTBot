@@ -14,7 +14,7 @@ of eliminations comes out — who killed whom, when, with what, and how confiden
 we are. Later: a per-player "Impact" score.
 
 ```
-python -m pwt replay match.mkv --profile <name> --csv events.csv
+python -m pwt replay match.mkv
 ```
 
 The same pipeline behind a desktop app a non-technical friend can run with
@@ -30,11 +30,13 @@ portable Windows zip built and self-tested by `.github/workflows/build-windows.y
 **Out, permanently:** live screen capture, real-time analysis, auto-scroll or any
 input sent to the game, folder watching, reading game memory.
 
-`pwt/capture/sources.py:LiveScreenSource` and `pwt live` are legacy. They exist;
-they are unsupported; do not extend them. `FileReplaySource` is the only path.
+The live-capture code (`LiveScreenSource`, `pwt live`) was deleted on 2026-10-07.
+`FileReplaySource` is the only source.
 
-**Target footage:** first-person **spectator**, round-based, 6v6, GameLoop
-windowed, 1080p. A second "aerial arena TDM" mode was investigated and dropped.
+**Target footage — the one layout:** first-person **spectator**, round-based, 6v6,
+GameLoop 1920x1080 (`pwt/profiles/gameloop-spectator-6v6-1080p.json`). The 2v2
+"windowed" profile, its fixtures and tests were deleted on 2026-10-07 (one
+version). A second "aerial arena TDM" mode was investigated and dropped.
 
 ---
 
@@ -108,7 +110,13 @@ These are not preferences. Breaking any one has already cost real accuracy.
    found in-world nameplates. They can never remove a row the main path found.
 3. **The roster finds names; it does not validate them.** OCR never reads these
    names correctly. Fuzzy-match every token to the nearest roster entry. Using
-   the roster as a membership test gives 0%.
+   the roster as a membership test gives 0%. **The roster is the run's list of
+   players** (the app's names box) plus their aliases -- never every name the
+   database has ever stored. Stored misreads near real names break the margin
+   rule: on 2026-10-04 22-55-47 a 138-name list (119 misreads from an old run)
+   named both players on 179 of 385 feed rows; the 18-name roster names 312.
+   Scoreboard names not on the roster are kept on the board and reported, never
+   used to resolve feed names.
 4. **Never ship a partial template library.** `CharReader.ready` counts entries,
    not coverage, and `ocr_mask` abandons Tesseract the moment it is true. A
    library covering some characters is worse than none.
@@ -150,9 +158,11 @@ A change is acceptable only if all of these hold:
   and 24, and the event CSV is identical when the run is repeated.
 - **6v6 benchmark** on `Video_Project_9.mp4`: ≥20 feed rows resolve both names,
   and `KG696969` is among the names read correctly.
-- *(The 2v2 regression on `Video_Project_7.mp4` was dropped 2026-10-05 at
-  Chirag's call: that clip is not the footage the tool is for. The `text`
-  detector and its profile stay, untested.)*
+- **Rounds** on `Video_Project_13.mp4` (rounds 15-17 of 2026-10-04 22-55-47,
+  where blue's score reaches 10): 3 rounds, both boards filed under their round,
+  also with the banner check switched off after 57 s (`tests/test_rounds.py`).
+- **Remaining digits:** `tools/harvest_remaining_digits.py --check-only` on
+  `Video_Project_13.mp4` with `tests/fixtures/remaining_vp13.csv` reports 0 WRONG.
 - No new unflagged row whose killer equals its victim.
 - Any claim about accuracy is **measured and stated with its number**, not argued.
 
@@ -166,7 +176,6 @@ A change is acceptable only if all of these hold:
 | `CLAUDE.md` | what a coding session must know on line 1 | rarely |
 | `docs/RUNBOOK.md` | how to run it | when the CLI changes |
 | `docs/roster.md` | exact player spellings | when players change |
-| `docs/kill-feed-reference.md` | the 2v2 mode; the regression test | rarely |
 | `claude/HANDOFF-*.md` (project) | current status, what's left | every session |
 | `claude/spectator-feed-reference.md` (project) | 6v6 HUD calibration + evidence | when recalibrated |
 

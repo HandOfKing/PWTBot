@@ -28,8 +28,11 @@ Use it
   3. Browse... and pick the recording (.mkv or .mp4).
      It must be a first-person spectator recording of a 6v6 round-based room,
      GameLoop at 1920x1080. Other layouts are refused rather than guessed at.
-  4. Check the "Player names" box: one name per line, spelled as in the game.
-     Names read from the kill feed are matched against this list.
+  4. Check the "Player names" box: one name per line, spelled exactly as in the
+     game, all 12 players of the match. Kill-feed names are matched against this
+     list only, so a missing player goes unnamed. The box remembers the list from
+     your last run. After a run, the result panel names anyone the final
+     scoreboard showed who is not in the list: add them and run again.
   5. Press Start. The bar shows how long is left. You can Stop at any time; the
      part done so far is kept.
 
@@ -50,6 +53,8 @@ Results
     NO_FEED_ROW   someone died (the Remaining counter dropped) but no readable
                   kill-feed line said who -- killer and victim left empty
     UNRESOLVED    a kill-feed line was found but a name could not be read
+    NO_DROP       a kill line the Remaining counter saw no death for (a repeat
+                  or a misread icon) -- kept in the table, not counted
 
 Where the data lives
   %LOCALAPPDATA%\\PWT  (the database and small evidence images of each feed line).

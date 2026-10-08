@@ -26,14 +26,6 @@ def app_dir() -> Path:
     return Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 
 
-def bundled_roster():
-    """roster.txt next to the app (one name per line), used when the database has no players yet."""
-    p = app_dir() / "roster.txt"
-    if not p.exists():
-        return []
-    return [l.strip() for l in p.read_text(encoding="utf-8").splitlines() if l.strip() and not l.startswith("#")]
-
-
 def open_path(p):
     p = str(p)
     if os.name == "nt":
@@ -84,14 +76,8 @@ class App:
         ttk.Entry(f, textvariable=self.v_path).grid(row=r, column=1, sticky="ew", padx=6)
         ttk.Button(f, text="Browse...", command=self.browse).grid(row=r, column=2, sticky="ew")
         r += 1
-        ttk.Label(f, text="Layout").grid(row=r, column=0, sticky="w", pady=3)
-        lay = ttk.Frame(f); lay.grid(row=r, column=1, columnspan=2, sticky="w", padx=6)
-        self.v_profile = tk.StringVar(value=process.DEFAULT_PROFILE)
-        ttk.Combobox(lay, textvariable=self.v_profile, values=process.profile_names(), state="readonly",
-                     width=34).pack(side="left")
-        ttk.Label(lay, text="   Players per team").pack(side="left")
-        self.v_team = tk.IntVar(value=6)
-        ttk.Spinbox(lay, from_=2, to=8, textvariable=self.v_team, width=4, state="readonly").pack(side="left", padx=4)
+        ttk.Label(f, text="For first-person spectator recordings of 6v6 rooms, GameLoop at 1920x1080.",
+                  foreground="#555").grid(row=r, column=1, columnspan=2, sticky="w", padx=6)
         r += 1
         ttk.Label(f, text="Detail").grid(row=r, column=0, sticky="nw", pady=3)
         det = ttk.Frame(f); det.grid(row=r, column=1, columnspan=2, sticky="w", padx=6)
@@ -107,11 +93,10 @@ class App:
         self.t_names.pack(side="left", fill="both", expand=True); sb.pack(side="left", fill="y")
         side = ttk.Frame(f); side.grid(row=r, column=2, sticky="n")
         ttk.Button(side, text="Load list...", command=self.load_names).pack(fill="x")
-        names = process.saved_roster(self.conn) or bundled_roster()
-        self.t_names.insert("1.0", "\n".join(names))
+        self.t_names.insert("1.0", "\n".join(process.default_roster()))
         r += 1
-        ttk.Label(f, text="One name per line, spelled as in the game. Every name read from the kill feed is "
-                          "matched against this list.", foreground="#555").grid(row=r, column=1, columnspan=2,
+        ttk.Label(f, text="One name per line, spelled as in the game (all 12 players). Names read from the "
+                          "kill feed are matched against this list only.", foreground="#555").grid(row=r, column=1, columnspan=2,
                                                                                 sticky="w", padx=6)
         r += 1
         ttk.Label(f, text="Save results to").grid(row=r, column=0, sticky="w", pady=(10, 3))
@@ -196,12 +181,9 @@ class App:
         if not path.is_file():
             messagebox.showerror("PWT", "Pick a recording first."); return
         roster = self.names()
-        if not roster and ask and not messagebox.askyesno(
-                "PWT", "No player names given.\n\nNames will only be learned from the scoreboard, so most "
-                       "eliminations will come out unnamed. Continue anyway?"):
-            return
-        self.last_run = dict(path=path, profile_name=self.v_profile.get(), roster=roster,
-                             fps=int(self.v_fps.get()), team_size=int(self.v_team.get()),
+        if not roster:
+            messagebox.showerror("PWT", "Add the player names first: one per line, spelled as in the game."); return
+        self.last_run = dict(path=path, roster=roster, fps=int(self.v_fps.get()),
                              out_dir=self.v_out.get().strip() or None, force=force, replace=replace)
         self.result, self.stop = None, threading.Event()
         self.b_start.configure(state="disabled"); self.b_stop.configure(state="normal")
@@ -284,10 +266,14 @@ class App:
         self.v_result.set(
             f"{c['eliminations']} eliminations in {c['rounds']} rounds  -  {c['named']} named, "
             f"{c['no_feed_row']} without a kill-feed row\n"
-            f"{c['knocks']} knocks  -  {c['to_review']} rows flagged for review\n"
+            f"{c['knocks']} knocks  -  {c['to_review']} rows flagged for review"
+            + (f"  -  {c['no_drop']} repeated kill rows not counted" if c.get('no_drop') else "") + "\n"
             + (f"End-of-match scoreboard: {c['board_players']} players"
                + (f", {c['board_blank']} number{'s' * (c['board_blank'] != 1)} unreadable" if c['board_blank'] else "") + "\n"
                if c.get('board_players') else "End-of-match scoreboard: not found\n")
+            + "".join(f"Check: {n}\n" for n in res.summary.get("notes", ())
+                      if n.startswith(("on the scoreboard but not in the player list", "no end-of-match",
+                                       "end-of-match scoreboard:")))
             + f"Saved: {res.xlsx_path.name}  (+ events CSV and log)")
         self.b_xlsx.configure(state="normal"); self.b_folder.configure(state="normal")
         self.v_status.set(("Stopped early - partial result saved. " if res.cancelled else "Done. ")
@@ -351,7 +337,7 @@ class App:
         sel = self.tv.selection()
         if sel and messagebox.askyesno("PWT", f"Delete {len(sel)} match(es) from the database?\n\n"
                                               "Exported Excel files are not touched."):
-            for mid in sel: db.delete_match(self.conn, int(mid))
+            for mid in sel: db.delete_match(self.conn, int(mid), keep_players=self.names())
             self.refresh_matches()
 
     def on_close(self):
@@ -385,7 +371,7 @@ def selftest(out):
     from pwt.readers import names
 
     check("version", lambda: __version__)
-    check("profiles", lambda: ", ".join(process.profile_names()))
+    check("layout", lambda: profiles.load(process.DEFAULT_PROFILE)["name"])
     def templates():
         prof = profiles.load(process.DEFAULT_PROFILE)
         from pwt.readers.feed import FeedReader

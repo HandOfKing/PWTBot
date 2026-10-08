@@ -3,9 +3,7 @@ import os, sys, tempfile
 from pathlib import Path
 import _util  # noqa: F401  (puts the app root on sys.path)
 from openpyxl import load_workbook
-from pwt import db, ingest, export_excel
-
-SAMPLE = Path(__file__).resolve().parents[1] / "samples" / "test_clip_events.csv"
+from pwt import db, export_excel
 
 
 def _fresh():
@@ -13,10 +11,32 @@ def _fresh():
     return db.connect(Path(d) / "pwt.db"), Path(d)
 
 
+def _sample(conn):
+    """One round, three feed rows, and that round's scoreboard -- the shape of a processed match."""
+    players = [dict(ign="TheWolverine", team="blue"), dict(ign="PARABloodthirs", team="blue"),
+               dict(ign="RGODxEMPEROR", team="red"), dict(ign="Makjets69", team="red")]
+    rounds = [dict(round_no=1, start_s=2.0, end_s=13.46, winner_team="blue", blue_score=1, red_score=0)]
+    e = dict(killer="TheWolverine", confidence=0.9, round_no=1)
+    events = [dict(e, true_time_s=12.58, feed_time_s=12.58, time_source="feed (approx)", event_type="knock",
+                   victim="RGODxEMPEROR", weapon="UMP45"),
+              dict(e, true_time_s=13.25, feed_time_s=14.67, time_source="Remaining drop + helmet",
+                   event_type="eliminated_knocked", victim="RGODxEMPEROR"),
+              dict(e, true_time_s=13.25, feed_time_s=16.75, time_source="Remaining drop + helmet",
+                   event_type="kill", victim="Makjets69", weapon="UMP45")]
+    board = {"TheWolverine": (2, 200), "PARABloodthirs": (0, 0), "RGODxEMPEROR": (0, 52), "Makjets69": (0, 0)}
+    stats = []
+    for ign, (el, dmg) in board.items():
+        stats += [dict(ign=ign, round_no=1, stat_name="eliminations", value=el),
+                  dict(ign=ign, round_no=1, stat_name="damage_dealt", value=dmg)]
+    match = dict(recorded_at="2026-10-01 22:53:00", source_file="sample.mkv", duration_s=21.5, mode="rounds",
+                 team_size=6, rounds_played=1, winner_team="blue")
+    return db.save_match(conn, match, players, rounds, events, stats)
+
+
 def test_import_is_idempotent_and_reconciles():
     conn, _ = _fresh()
-    a = ingest.import_test_clip(conn, SAMPLE)
-    b = ingest.import_test_clip(conn, SAMPLE)
+    a = _sample(conn)
+    b = _sample(conn)
     assert a == b
     players = {p["ign"]: p for p in db.match_detail(conn, a)["players"]}
     w = players["TheWolverine"]
@@ -28,7 +48,7 @@ def test_import_is_idempotent_and_reconciles():
 
 def test_events_carry_true_and_feed_time():
     conn, _ = _fresh()
-    mid = ingest.import_test_clip(conn, SAMPLE)
+    mid = _sample(conn)
     ev = db.match_detail(conn, mid)["events"]
     kill = [e for e in ev if e["victim"] == "Makjets69"][0]
     assert kill["true_time_s"] == 13.25 and kill["feed_delay_s"] == 3.5 and kill["round_no"] == 1
@@ -36,7 +56,7 @@ def test_events_carry_true_and_feed_time():
 
 def test_alias_and_list_filters():
     conn, _ = _fresh()
-    mid = ingest.import_test_clip(conn, SAMPLE)
+    mid = _sample(conn)
     assert db.get_or_create_player(conn, "TheWølverine") == db.get_or_create_player(conn, "TheWolverine")
     assert len(db.list_matches(conn, "2026-10-01", "2026-10-01")) == 1
     assert len(db.list_matches(conn, "2026-10-02")) == 0
@@ -45,7 +65,7 @@ def test_alias_and_list_filters():
 
 def test_excel_exports():
     conn, d = _fresh()
-    mid = ingest.import_test_clip(conn, SAMPLE)
+    mid = _sample(conn)
     wb = load_workbook(export_excel.export_match(conn, mid, d / "m.xlsx"))
     assert wb.sheetnames == ["Summary", "Events", "Rounds", "Round scoreboards", "Match scoreboard"]
     assert wb["Events"].max_row == 4

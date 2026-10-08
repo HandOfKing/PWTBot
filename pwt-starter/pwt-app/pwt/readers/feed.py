@@ -81,7 +81,6 @@ class FeedReader:
         self.min_glyphs = f.get("min_glyphs", 0)
         self.glyph_h = (f.get("glyph_h_min", 0), f.get("glyph_h_max", 10 ** 6))
         self.glyph_h_std_max = f.get("glyph_h_std_max", 10 ** 6)
-        self.row_detect = f.get("row_detect", "text")   # "text" | "panel"
         # A11: rows inside an over-tall dark run, found by their text. Off unless
         # the profile sets ink_fallback (see _ink_rows).
         self.ink_fallback = f.get("ink_fallback", False)
@@ -158,44 +157,9 @@ class FeedReader:
         return float(np.std(hs)) <= self.glyph_h_std_max
 
     def _row_bands(self, m, g, fallback=True):
-        """Pick the row detector this footage needs (profile: feed.row_detect).
-
-        'panel' -- scan the panel's flat dark left padding. Required for
-          first-person SPECTATOR footage, where the feed overlays moving
-          scenery and text density finds the scenery instead of the rows.
-          Needs rows far enough apart that the padding goes bright between
-          them (measured: min gap 17px in the 6v6 recording).
-
-        'text'  -- the original text-density scan plus a left-alignment
-          filter. Right for the 2v2 clip, whose rows sit ~46px apart with a
-          panel that stays dark BETWEEN rows, so 'panel' merges them into one
-          70px run. Fine there because the background barely moves.
-
-        There is no single setting that serves both. That is what layout
-        profiles are for.
-        """
-        if self.row_detect == "text":
-            return self._text_bands(m)
+        """Feed rows by the panel's flat dark left padding (A1). Text density finds moving scenery
+        instead of rows in first-person spectator footage; the padding does not move."""
         return self._feed_boxes(g, m if fallback else None)
-
-    def _text_bands(self, m):
-        """Original detector: runs of text density, left-aligned to the feed."""
-        prof = m[:, 14:440].sum(1)
-        out, y, H = [], 0, len(prof)
-        while y < H:
-            if prof[y] >= 3:
-                s = y
-                while y < H and prof[y] >= 2:
-                    y += 1
-                if self.h_min <= y - s <= self.h_max:
-                    col = m[s:y].sum(0)
-                    col[:12] = 0
-                    xs = np.where(col > 0)[0]
-                    lo, hi = self.pad[0] - self.box[0], self.pad[1] - self.box[0]
-                    if len(xs) and lo <= xs[0] <= hi:
-                        out.append((s, y))
-            y += 1
-        return out
 
     def _feed_boxes(self, g, m=None):
         """A1: detect feed rows by the dark semi-transparent panel."""

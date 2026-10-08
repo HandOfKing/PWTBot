@@ -130,7 +130,7 @@ FROM (
     (SELECT MIN(e.feed_time_s) FROM events e
       WHERE e.match_id = k.match_id AND IFNULL(e.round_id, -1) = IFNULL(k.round_id, -1)
         AND e.feed_time_s > k.feed_time_s AND e.victim_id = k.victim_id
-        AND e.event_type IN ('kill','eliminated_knocked'))                       AS next_elim_feed,
+        AND e.event_type IN ('kill','eliminated_knocked') AND IFNULL(e.flag, '') <> 'NO_DROP') AS next_elim_feed,
     (SELECT MIN(e.feed_time_s) FROM events e
       WHERE e.match_id = k.match_id AND IFNULL(e.round_id, -1) = IFNULL(k.round_id, -1)
         AND e.feed_time_s > k.feed_time_s AND e.id <> k.id
@@ -172,7 +172,8 @@ SELECT e.id AS event_id, e.match_id, e.round_id, e.victim_id,
            ORDER BY o.feed_time_s DESC LIMIT 1),
          e.killer_id)                                                            AS credited_id
 FROM events e
-WHERE e.event_type IN ('kill', 'eliminated_knocked');
+WHERE e.event_type IN ('kill', 'eliminated_knocked')
+  AND IFNULL(e.flag, '') <> 'NO_DROP';   -- a kill row the Remaining counter saw no death for: not counted
 
 -- Per player per match. "eliminations" follows the game's crediting rule above;
 -- "finishes" is what the feed literally showed, kept so the two can be compared.
@@ -185,15 +186,26 @@ SELECT mp.match_id, m.recorded_at, p.id AS player_id, p.ign, p.nickname, mp.team
   (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.killer_id = p.id
       AND e.event_type = 'knock')                                                 AS knocks,
   (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.victim_id = p.id
-      AND e.event_type IN ('kill','eliminated_knocked'))                         AS deaths,
+      AND e.event_type IN ('kill','eliminated_knocked') AND IFNULL(e.flag, '') <> 'NO_DROP') AS deaths,
   (SELECT COUNT(*) FROM events e WHERE e.match_id = mp.match_id AND e.victim_id = p.id
       AND e.event_type = 'knock')                                                 AS times_knocked,
   (SELECT COUNT(*) FROM v_knock_outcomes o WHERE o.match_id = mp.match_id AND o.victim_id = p.id
       AND o.outcome = 'revived')                                                  AS revives_inferred,
-  (SELECT SUM(s.value) FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
-      AND s.stat_name = 'damage_dealt' AND s.round_id IS NOT NULL)               AS damage_dealt,
-  (SELECT SUM(s.value) FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
-      AND s.stat_name = 'eliminations' AND s.round_id IS NOT NULL)               AS scoreboard_eliminations
+  -- Scoreboard numbers: the end-of-match board (round_id NULL) when it was read -- it covers
+  -- the whole match and every player -- else the sum of the round boards, which in 6v6 show
+  -- only the rows on screen without scrolling (6 of 12).
+  COALESCE((SELECT s.value FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
+      AND s.stat_name = 'damage_dealt' AND s.round_id IS NULL),
+    (SELECT SUM(s.value) FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
+      AND s.stat_name = 'damage_dealt' AND s.round_id IS NOT NULL))              AS damage_dealt,
+  COALESCE((SELECT s.value FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
+      AND s.stat_name = 'eliminations' AND s.round_id IS NULL),
+    (SELECT SUM(s.value) FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
+      AND s.stat_name = 'eliminations' AND s.round_id IS NOT NULL))              AS scoreboard_eliminations,
+  (SELECT s.value FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.player_id = p.id
+      AND s.stat_name = 'knock_outs' AND s.round_id IS NULL)                     AS scoreboard_knock_outs,
+  EXISTS (SELECT 1 FROM scoreboard_stats s WHERE s.match_id = mp.match_id AND s.round_id IS NULL)
+                                                                                 AS has_match_board
 FROM match_players mp
 JOIN players p ON p.id = mp.player_id
 JOIN matches m ON m.id = mp.match_id;

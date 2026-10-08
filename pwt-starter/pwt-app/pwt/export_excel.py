@@ -45,16 +45,22 @@ def _event_rows(events):
 
 
 PLAYER_HEADERS = ["Player", "Nickname", "Team", "Eliminations", "Knocks", "Deaths", "Times knocked",
-                  "Revives (inferred, at least)", "Damage dealt", "Scoreboard elims", "Check"]
+                  "Revives (inferred, at least)", "Damage dealt", "Board eliminations", "Board knock outs", "Check"]
 
 
 def _player_rows(players):
+    """Kill-feed counts next to the scoreboard's. "Board" is the end-of-match board when it was
+    read (whole match, every player), else the sum of the round boards (partial in 6v6)."""
     rows = []
     for p in players:
-        sb = p["scoreboard_eliminations"]
-        check = "" if sb is None else ("OK" if int(sb) == p["eliminations"] else f"feed {p['eliminations']} vs board {int(sb)}")
+        keys = p.keys()
+        sb, sk = p["scoreboard_eliminations"], p["scoreboard_knock_outs"] if "scoreboard_knock_outs" in keys else None
+        diffs = []
+        if sb is not None and int(sb) != p["eliminations"]: diffs.append(f"elims {p['eliminations']} vs board {int(sb)}")
+        if sk is not None and int(sk) != p["knocks"]: diffs.append(f"knocks {p['knocks']} vs board {int(sk)}")
+        check = "" if sb is None and sk is None else ("; ".join(diffs) or "OK")
         rows.append([p["ign"], p["nickname"], p["team"], p["eliminations"], p["knocks"], p["deaths"],
-                     p["times_knocked"], p["revives_inferred"], p["damage_dealt"], sb, check])
+                     p["times_knocked"], p["revives_inferred"], p["damage_dealt"], sb, sk, check])
     return rows
 
 

@@ -14,7 +14,7 @@ import queue, threading, time
 from pathlib import Path
 import cv2
 
-from .. import db
+from .. import __version__, db
 from ..readers import names
 from ..readers.counters import CounterReader
 from ..readers.feed import FeedReader, LineTracker, row_names
@@ -22,6 +22,8 @@ from ..readers.screens import ScreenReader, ScoreboardStitcher
 
 ELIM_TYPES = ("kill", "eliminated_knocked")
 DEDUPE_WINDOW = 5.0      # A8: collapse same (killer, victim, type) within this many seconds
+LATE_ROW_S = 8.0         # a feed row first seen this soon after a round starts is the last round's (_row_round)
+LATE_ELIM_S = 15.0       # ... and so is a kill row this soon, while its round has had no death yet
 
 
 class ScoreboardWorker:
@@ -56,29 +58,33 @@ class ScoreboardWorker:
 
 
 class Engine:
-    def __init__(self, profile, conn, *, roster=(), source_file="live", recorded_at=None, data_dir=None,
-                 log=print, on_scoreboard=None):
+    def __init__(self, profile, conn, *, roster=(), source_file="replay", recorded_at=None, data_dir=None,
+                 team_size=6, log=print):
         self.p, self.conn, self.log = profile, conn, log or (lambda *a: None)
         self.source_file, self.recorded_at = source_file, recorded_at
         self.data_dir = Path(data_dir) if data_dir else db.data_dir()
-        self.on_scoreboard = on_scoreboard              # callback(have, expected, done) for the scroll prompt
         self.counters = CounterReader(profile)
         self.screens = ScreenReader(profile, self.counters)
         self.feed = FeedReader(profile)
         f = profile["feed"]
         self.tracker = LineTracker(f["min_seen_s"], f["gap_s"], f["ocr_samples"])
         self.sb_worker = ScoreboardWorker(self.screens)
-        for ign in roster: db.get_or_create_player(conn, ign)           # a given roster is remembered
-        conn.commit()
-        self.known = db.known_names(conn)
+        # The names to match against: this run's roster (and its players' aliases) only. Every name
+        # ever stored used to be in this list, misreads included (db.roster_names).
+        self.known = db.roster_names(conn, roster) if roster else db.known_names(conn)
         self.team_colors = profile["scoreboard"]["team_colors"]
 
         self.lm = None
         self.state = "IDLE"                 # IDLE | ROUND_LIVE | ROUND_END | SCOREBOARD | BETWEEN
         self.round_no, self.boards_for_round = 0, set()
+        self.round_closed = True            # a board has closed since the last round started
+        self.reset_at = None                # Remaining back to a full room after that board: next round's start
+        self.board_seq, self.last_board_close, self.match_board = 0, None, False
+        self.match_board_min_s = profile["scoreboard"].get("match_board_min_s", 5.0)
+        self.off_roster = {}                # scoreboard names not in the roster -> how consistently read
         self.round_starts = []              # (start_s, round_no), for _round_at
-        self.players_in_room, self.team_size = None, 2
-        self.rem = dict(value=None, cand=None, n=0, left_t=None, first=[])
+        self.players_in_room, self.team_size = None, team_size       # until Remaining says otherwise
+        self.rem = dict(value=None, cand=None, n=0, left_t=None, first=[], max=0)
         self.drops, self.helm_deaths, self.helm = [], [], {}
         self.max_align_lag_s = profile.get("max_align_lag_s", 8.0)
         self.round_info = {}
@@ -114,26 +120,40 @@ class Engine:
     def _ensure_match(self):
         if self.lm is None:
             self.lm = db.LiveMatch(self.conn, recorded_at=self.recorded_at, source_file=self.source_file,
-                                   layout_profile=self.p["name"], pipeline_version="0.2-stageA")
+                                   layout_profile=self.p["name"], pipeline_version=__version__)
             self.ev_dir = self.data_dir / "evidence" / f"match_{self.lm.id}"
             self.ev_dir.mkdir(parents=True, exist_ok=True)
             self.log(f"match #{self.lm.id} started")
         return self.lm
 
+    def _start_round(self, t, frame=None, how=None):
+        self._ensure_match()
+        self.round_no += 1
+        self.round_closed, self.reset_at = False, None
+        self.lm.start_round(self.round_no, start_s=round(t, 3))
+        self.round_starts.append((t, self.round_no))
+        if self.rem["value"]:
+            self.players_in_room = max(self.players_in_room or 0, self.rem["value"])
+            self.team_size = max(2, self.players_in_room // 2)
+        self.round_info = dict(start=t, score0=self.counters.scores(frame) if frame is not None else {},
+                               winner=None, end=None, score=None, banner_seen=False)
+        self.helm = {}
+        self.state = "ROUND_LIVE"
+        self.log(f"{t:7.2f}s  round {self.round_no} live (players {self.players_in_room})"
+                 + (f"  [{how}]" if how else ""))
+
     def _live(self, t, frame):
         self.banner_absent_since = None
         if self.state != "ROUND_LIVE":
-            self._ensure_match()
-            self.round_no += 1
-            self.lm.start_round(self.round_no, start_s=round(t, 3))
-            self.round_starts.append((t, self.round_no))
-            if self.rem["value"]:
-                self.players_in_room = max(self.players_in_room or 0, self.rem["value"])
-                self.team_size = max(2, self.players_in_room // 2)
-            self.round_info = dict(start=t, score0=self.counters.scores(frame), winner=None, end=None, score=None)
-            self.helm = {}
-            self.state = "ROUND_LIVE"
-            self.log(f"{t:7.2f}s  round {self.round_no} live (players {self.players_in_room})")
+            # A new round needs the last one's board to have come and gone (or nothing yet). The
+            # banner hiding for a moment mid-round is the same round, not a new one.
+            if self.round_closed or not self.round_no:
+                self._start_round(t, frame)
+            else:
+                self.state = "ROUND_LIVE"
+        if not self.round_info.get("banner_seen"):
+            self.round_info["banner_seen"] = True
+            if not self.round_info.get("score0"): self.round_info["score0"] = self.counters.scores(frame)
         # helmets: a slot is dead after 2 consecutive gray reads
         for team, slots in self.counters.helmets(frame, self.team_size).items():
             for k, s in enumerate(slots):
@@ -155,6 +175,8 @@ class Engine:
                     self.log(f"{t:7.2f}s  round {self.round_no} won by {team} ({sc['blue']}-{sc['red']})")
 
     def _banner_missing(self, t):
+        if not self.round_info.get("banner_seen"):
+            return                  # round started by the Remaining reset: its board will end it
         if self.banner_absent_since is None:
             self.banner_absent_since = t
             for (team, k), key in self.helm.items():           # gray read right before the banner vanished
@@ -178,20 +200,37 @@ class Engine:
         r = self.rem
         if r["value"] is None:                                  # first stable reading
             r["first"].append(v)
-            if len(r["first"]) >= 2 and r["first"][-1] == r["first"][-2]: r["value"] = v
+            if len(r["first"]) >= 2 and r["first"][-1] == r["first"][-2]: r["value"] = r["max"] = v
             return
         if v != r["value"] and r["left_t"] is None: r["left_t"] = t
         if v == r["cand"]: r["n"] += 1
         else: r["cand"], r["n"] = v, 1
         if r["n"] >= 2 and v != r["value"]:
             if v < r["value"]:
+                self._round_due(r["left_t"])
                 for _ in range(r["value"] - v):
                     self.drops.append(dict(t=r["left_t"], team=None, used=False,
                                            round=self.round_no))
                 self.log(f"{r['left_t']:7.2f}s  Remaining {r['value']} -> {v}")
-            r["value"], r["left_t"] = v, None                   # an increase = new round reset
+            elif v >= r["max"] and self.round_closed and self.state != "ROUND_LIVE":
+                # Back to a full room after a board: the next round is starting (pre-round countdown).
+                # It begins here; it is created when it shows life -- the banner, a death or a feed
+                # row -- so a recording that stops at this point has no empty round at its end.
+                # Backstop for the banner check, which once missed rounds 16-25 of a match.
+                self.reset_at = r["left_t"]
+            r["value"], r["left_t"], r["max"] = v, None, max(r["max"], v)   # confirmed values only
         elif v == r["value"]:
             r["left_t"] = None
+
+    def _round_due(self, t, feed=False):
+        """Something happened at t after a Remaining reset while no round was live: the round the
+        reset announced has started, banner seen or not. A death always counts. A feed row counts
+        only from LATE_ROW_S after the reset: rows printed after the board belong to the last round
+        (see _row_round)."""
+        if not (self.round_closed and self.reset_at is not None and t is not None):
+            return
+        if t >= self.reset_at + (LATE_ROW_S if feed else 0.0):
+            self._start_round(self.reset_at, how="Remaining reset")
 
     def _helmet_death(self, t, team, slot):
         self.helm_deaths.append(dict(t=t, team=team, slot=slot + 1))
@@ -219,6 +258,7 @@ class Engine:
         A7: flag UNRESOLVED instead of dropping.
         A8: dedupe against recent events with the same (killer, victim, type)."""
         lm = self._ensure_match()
+        self._round_due(line.first_t, feed=True)
         roster = list(self.known) if self.known else []
         k, kc, v, vc, raw_ocr = line.vote(roster)
 
@@ -280,11 +320,11 @@ class Engine:
 
         k_raw = k or raw_ocr
         v_raw = v or raw_ocr
-        rnd = self._round_at(line.first_t)
+        rnd, late = self._row_round(self._round_at(line.first_t), line)
         rec = dict(feed_t=round(line.first_t, 3), true_t=round(line.first_t, 3),
                    type=line.etype, weapon=line.weapon,
                    killer=k, victim=v, raw_ocr=raw_ocr,
-                   conf=conf, source="feed (approx)", drop=None, round_no=rnd,
+                   conf=conf, source="feed (approx)", drop=None, round_no=rnd, late=late,
                    # the line's LIVE sighting list (it keeps growing after this event is
                    # recorded), not the Line itself, which holds image crops
                    seen=line.hist)
@@ -320,6 +360,28 @@ class Engine:
                 n = no
         return n if n is not None else (self.round_no or None)
 
+    def _row_round(self, rnd, line):
+        """(round, late) for a feed row. The feed prints a team wipe one row at a time, ~2.5 s
+        apart, and the board interrupts it: the last rows of a round appear after its board, when
+        the next round has begun (Video_Project_13 126.3 / 126.7 s: deaths of the round-16 wipe at
+        115.0 s, first seen after round 17's banner). Such a row belongs to the round before:
+          - any row first seen within LATE_ROW_S of its round's start (nobody has met yet), and
+          - a kill row within LATE_ELIM_S while its round has had no death: the counter drops
+            before the feed prints a death, so a kill row before any drop is not this round's.
+        A late row may claim any unclaimed death of its round, however old (_align)."""
+        if not rnd or rnd < 2:
+            return rnd, False
+        start = next((s for s, n in self.round_starts if n == rnd), None)
+        if start is None:
+            return rnd, False
+        since = line.first_t - start
+        if since <= LATE_ROW_S:
+            return rnd - 1, True
+        if line.etype in ELIM_TYPES and since <= LATE_ELIM_S and not any(
+                d["round"] == rnd and d["t"] is not None and d["t"] <= line.first_t + 0.05 for d in self.drops):
+            return rnd - 1, True
+        return rnd, False
+
     def _align(self, rec):
         """Give an elimination its true time from the matching Remaining drop.
 
@@ -340,7 +402,7 @@ class Engine:
         for d in self.drops:
             if d["used"] or d["t"] > rec["feed_t"] + 0.05: continue
             if d.get("round") is not None and d["round"] != rec.get("round_no", self.round_no): continue
-            if rec["feed_t"] - d["t"] > self.max_align_lag_s: continue
+            if rec["feed_t"] - d["t"] > self.max_align_lag_s and not rec.get("late"): continue
             if team and d["team"] and d["team"] != team: continue
             d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
             rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"
@@ -354,10 +416,10 @@ class Engine:
             if self.board_pending: self._save_board(wait=True)         # back-to-back boards (rare)
             if self.state == "ROUND_LIVE":
                 self._end_round(t)
+            self.board_seq += 1
             self.state, self.sb_started, self.sb_prev, self.sb_kept, self.sb_last_read = "SCOREBOARD", t, None, 0, -1e9
-            self.board_round = self.round_no if self.round_no and self.round_no not in self.boards_for_round else None
-            self.sb_worker.start(self.players_in_room, self.known)
-            self.log(f"{t:7.2f}s  {'round ' + str(self.board_round) if self.board_round else 'match'} scoreboard up")
+            self.sb_worker.start(self.players_in_room or 2 * self.team_size, self.known)
+            self.log(f"{t:7.2f}s  scoreboard up")
         cfg = self.p["scoreboard"]
         settled = t - self.sb_started >= cfg.get("settle_s", 0.4)          # skip the fade-in frames
         if settled and (self.screens.table_changed(self.sb_prev, frame)
@@ -365,54 +427,88 @@ class Engine:
             self.sb_worker.submit(frame.copy())
             self.sb_prev, self.sb_kept, self.sb_last_read = frame, self.sb_kept + 1, t
             if self.lm:
-                cv2.imwrite(str(self.ev_dir / f"board_{self.board_round or 'match'}_{self.sb_kept}.jpg"), frame,
+                cv2.imwrite(str(self.ev_dir / f"board_{self.board_seq}_{self.sb_kept}.jpg"), frame,
                             [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if self.on_scoreboard:
-            self.on_scoreboard(*self.sb_worker.stitcher.progress())
 
-    def _close_scoreboard(self, t):
-        """Board gone: wait for its queued reads and save it now.
+    def _close_scoreboard(self, t, at_end=False):
+        """Board gone: decide whose board it was, wait for its queued reads and save it now.
 
-        It used to be saved "whenever the worker went idle", i.e. at a
-        wall-clock moment. Saving sets team_of, which _align filters on, so the
-        same file gave different tables depending on CPU load (handoff
-        2026-10-05 §5). Waiting costs only the reads still queued, once per
-        board; live capture, which that wait would have stalled, is out of scope.
+        Which board: a round board is up ~2.9 s (the game's own "Next Round" countdown); the
+        end-of-match board stays until the person recording leaves it, and they scroll it. So a
+        board up >= match_board_min_s, or still up when the recording ends, is the match board.
+        A round board whose round already has one belongs to a round nobody saw start; that
+        round is created now rather than the board being filed as the match board, which is
+        what happened to 4 round boards on 2026-10-04 22-55-47.
+
+        Saving waits for the reads still queued. It used to happen "whenever the worker went
+        idle", a wall-clock moment, and saving sets team_of, which _align filters on: the same
+        file gave different tables depending on CPU load (handoff 2026-10-05 section 5).
         """
-        self.board_pending = dict(round=self.board_round, closed=t, started=self.sb_started, kept=self.sb_kept)
+        if at_end or t - self.sb_started >= self.match_board_min_s:
+            rnd = None
+        elif self.round_no and self.round_no not in self.boards_for_round:
+            rnd = self.round_no
+        else:
+            rnd = self._missed_round(self.sb_started)
+        self.round_closed, self.last_board_close = True, t
+        self.board_pending = dict(round=rnd, closed=t, started=self.sb_started, kept=self.sb_kept)
         self.state = "BETWEEN"
         self._save_board(wait=True)
+
+    def _missed_round(self, board_t):
+        """A round board for a round never seen starting (no banner, no Remaining reset). The
+        round ran from the previous board to this one: create it, and move the drops and events
+        of that stretch into it so _align and the knock credit work within the right round."""
+        start = (self.reset_at if self.reset_at is not None
+                 else self.last_board_close if self.last_board_close is not None else 0.0)
+        self._ensure_match()
+        self.round_no += 1
+        no = self.round_no
+        self.lm.start_round(no, start_s=round(start, 3))
+        self.lm.end_round(no, end_s=round(board_t, 3))
+        self.round_starts.append((start, no)); self.round_starts.sort()
+        for d in self.drops:
+            if d["t"] is not None and d["t"] >= start: d["round"] = no
+        moved = [e for e in self.events if e["feed_t"] >= start and e.get("round_no") != no]
+        for e in moved: e["round_no"] = no
+        if moved: self.lm.move_events([e["id"] for e in moved], no)
+        self.log(f"{start:7.2f}s  round {no}: start not seen, found by its board at {board_t:.2f}s "
+                 f"({len(moved)} feed rows moved into it)")
+        self.notes.append(f"round {no} was found only by its scoreboard (its start was not seen)")
+        return no
 
     def _save_board(self, wait=False):
         bp, self.board_pending = self.board_pending, None
         st = self.sb_worker.finish()        # returns at once when called because the worker went idle
-        t, self.board_round, self.sb_started, self.sb_kept = bp["closed"], bp["round"], bp["started"], bp["kept"]
+        t, rnd, started, kept = bp["closed"], bp["round"], bp["started"], bp["kept"]
         lm = self._ensure_match()
         cols = self.p["scoreboard"]["value_cols"]
         elim_col = self.p["scoreboard"]["eliminations_col"]
         rows = st.result(cols)
         stats = []
-        new = [f"{r['ign']} (read {r['name_agree']:.0%} consistently)" for r in rows if not r["on_roster"]]
-        if new:
-            self.notes.append("new player names from the scoreboard, check spelling: " + ", ".join(new))
         for r in rows:
+            if not r["on_roster"]:
+                # Not in this run's roster: kept on the board (its numbers are real), never used to
+                # resolve kill-feed names, and reported so the right spelling can be added.
+                self.off_roster[r["ign"]] = max(self.off_roster.get(r["ign"], 0.0), r["name_agree"])
             color = self.team_colors.get(str(r["team"])) if r["team"] is not None else None
             if color:
                 self.team_of[r["ign"]] = color
                 lm.set_player(r["ign"], color)
-            self.known.add(r["ign"])
             for c, v in r["values"].items():
                 stats.append(dict(ign=r["ign"], stat_name=c, value=v, confidence=r["agree"][c]))
             stats.append(dict(ign=r["ign"], stat_name="eliminations", value=r["values"].get(elim_col),
                               confidence=r["agree"].get(elim_col)))
-        lm.add_stats(stats, round_no=self.board_round)
+        lm.add_stats(stats, round_no=rnd)
         have, exp, done = st.progress()
-        label = f"round {self.board_round}" if self.board_round else "match"
-        if exp and have < exp:
-            self.notes.append(f"{label} scoreboard: {have}/{exp} rows captured")
-        if self.board_round: self.boards_for_round.add(self.board_round)
-        self.log(f"{t:7.2f}s  {label} scoreboard closed: {have}/{exp or '?'} rows "
-                 f"({t - self.sb_started:.1f}s on screen, {self.sb_kept} positions read)")
+        label = f"round {rnd}" if rnd else "match"
+        if rnd: self.boards_for_round.add(rnd)
+        else:
+            self.match_board = True
+            if exp and have < exp:
+                self.notes.append(f"end-of-match scoreboard: {have}/{exp} players read (scroll it slowly, top to bottom)")
+        self.log(f"{t:7.2f}s  {label} scoreboard: {have}/{exp or '?'} rows "
+                 f"({t - started:.1f}s on screen, {kept} positions read)")
         self._resolve_pending()
 
     def _resolve_pending(self, final=False):
@@ -457,6 +553,41 @@ class Engine:
         self.pending = still
 
     # ------------------------------------------------------------------ end
+    def _settle_eliminations(self):
+        """End of the recording: every round is over, so each round's unclaimed deaths are known.
+
+        A kill row that found no drop within max_align_lag_s takes the earliest unclaimed death of
+        its round before it -- the last rows of a wipe can be printed 15 s and more after the
+        deaths (2026-10-04 22-55-47 round 17: deaths at 1264.0 s, rows at 1275-1279 s). Without
+        this the row stayed unmatched AND its death became a NO_FEED_ROW: one death, two rows.
+
+        A kill row left with no death to claim is one the Remaining counter never saw: a repeat of
+        a row already counted, or a knock row read as a kill. It is kept, flagged NO_DROP, and not
+        counted -- the counter, read on every frame, is the authority on how many died.
+        """
+        n = 0
+        for rec in self.events:
+            if rec["type"] not in ELIM_TYPES or rec.get("drop") is not None or rec.get("id") is None:
+                continue
+            for d in self.drops:
+                if d["used"] or d["t"] is None or d["t"] > rec["feed_t"] + 0.05: continue
+                if d.get("round") is not None and d["round"] != rec.get("round_no"): continue
+                d["used"], rec["drop"], rec["true_t"] = True, d, d["t"]
+                rec["source"] = "Remaining drop + helmet" if d["team"] else "Remaining drop"
+                self.lm.update_event_time(rec["id"], round(d["t"], 3), rec["source"])
+                if d["team"] and rec["victim"]: self.team_of.setdefault(rec["victim"], d["team"])
+                break
+            else:
+                self.conn.execute("UPDATE events SET flag='NO_DROP' WHERE id=?", (rec["id"],))
+                rec["flag"] = "NO_DROP"
+                n += 1
+                self.log(f"{rec['feed_t']:7.2f}s  {rec['killer'] or '?'} --{rec['type']}--> {rec['victim'] or '?'}"
+                         f"  FLAG NO_DROP (no death on the Remaining counter for it; not counted)")
+        self.conn.commit()
+        if n:
+            self.notes.append(f"{n} kill row(s) had no death on the Remaining counter (repeats or misread "
+                              f"icons) and are flagged NO_DROP, not counted")
+
     def _emit_unclaimed_drops(self):
         """A13: a Remaining drop no feed row ever claimed is still an elimination.
 
@@ -505,13 +636,19 @@ class Engine:
 
     def finish(self):
         for line in self.tracker.flush(): self._confirm(line)
-        if self.state == "SCOREBOARD": self._close_scoreboard(self.last_t)
+        if self.state == "SCOREBOARD": self._close_scoreboard(self.last_t, at_end=True)
         if self.board_pending: self._save_board(wait=True)
         if self.state == "ROUND_LIVE": self._end_round(self.last_t)
         if self.lm is None:
             return dict(match_id=None, frames=self.frames, notes=["no round was detected"])
         self._resolve_pending(final=True)
+        self._settle_eliminations()
         self._emit_unclaimed_drops()
+        if self.off_roster:
+            self.notes.append("on the scoreboard but not in the player list (add the exact in-game spelling and "
+                              "run again): " + ", ".join(sorted(self.off_roster)))
+        if not self.match_board:
+            self.notes.append("no end-of-match scoreboard: keep recording on the final board and scroll it slowly")
         for rec in self.events:
             for n in (rec["killer"], rec["victim"]):
                 if n: self.lm.set_player(n, self.team_of.get(n, ""))

@@ -11,18 +11,32 @@ class CounterReader:
     def __init__(self, profile):
         self.p = profile
         b = profile["banner"]
-        self.blue_pts, self.red_pts = b["blue_pts"], b["red_pts"]
         self.blue_diff, self.red_diff = b["blue_min_diff"], b["red_min_diff"]
+        self.box_min_frac = b.get("box_min_frac", 0.25)
         self.alive, self.dead = b["helmet_alive_above"], b["helmet_dead_above"]
         self.remaining = DigitReader(profile.templates / "digits_remaining")
         self.banner_digits = DigitReader(profile.templates / "digits_banner")
         self._last_rem_crop, self._last_rem = None, None
 
+    def _box_frac(self, im, key, blue):
+        x0, y0, x1, y1 = self.p["banner"][key]
+        c = im[y0:y1, x0:x1].astype(np.int16)
+        d = c[..., 0] - c[..., 2] if blue else c[..., 2] - c[..., 0]
+        return float((d > (self.blue_diff if blue else self.red_diff)).mean())
+
     def banner_visible(self, im):
-        """Score boxes are solid blue / red only while a round is live."""
-        b = all(int(im[y, x][0]) - int(im[y, x][2]) > self.blue_diff for x, y in self.blue_pts)
-        r = all(int(im[y, x][2]) - int(im[y, x][0]) > self.red_diff for x, y in self.red_pts)
-        return b and r
+        """Score boxes are solid blue / red only while a round is live.
+
+        Measured as the SHARE of each score box that is team-coloured, not as a
+        few sample pixels. The sample pixels sat where a second digit is drawn:
+        once blue reached 10 the "0" covered one of them and every later round
+        went undetected (2026-10-04 22-55-47: 22 rounds found of 25; rounds 16-25
+        merged). Shares on Video_Project_9 / _13: 0.61-0.83 with one digit,
+        0.38-0.40 with "10", 0.00 whenever the banner is hidden (round end,
+        boards, loading). Both boxes must pass, so blue sky in one is not enough.
+        """
+        return (self._box_frac(im, "blue_score_box", True) >= self.box_min_frac
+                and self._box_frac(im, "red_score_box", False) >= self.box_min_frac)
 
     def read_remaining(self, im):
         """Remaining digits, re-read only when the box's pixels changed. None = unreadable/hidden."""

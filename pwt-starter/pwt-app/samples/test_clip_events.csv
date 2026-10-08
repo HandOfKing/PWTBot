@@ -1,4 +1,0 @@
-true_time_s,time_source,feed_first_seen_s,feed_delay_s,killer,type,weapon,victim,victim_team,name_conf,flag
-12.5,feed (approx),12.5,0.0,TheWolverine,knock,UMP45,RGODxEMPEROR,red,0.83,
-13.25,Remaining drop + helmet,14.75,1.5,TheWolverine,eliminated_knocked,,RGODxEMPEROR,red,0.78,
-13.25,Remaining drop + helmet,16.75,3.5,TheWolverine,kill,UMP45,Makjets69,red,0.78,

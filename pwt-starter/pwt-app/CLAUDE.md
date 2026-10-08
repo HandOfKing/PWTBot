@@ -21,8 +21,10 @@ The desktop app IS in scope (Chirag, 2026-10-05): Tkinter, `app/main.py`, a thin
 `pwt/process.py`. Keep logic out of the window so it can be tested without a display. It is
 built and self-tested on a Windows runner by `.github/workflows/build-windows.yml` (repo root).
 
-`pwt/capture/sources.py` still contains `LiveScreenSource` and `pwt live` still exists. They are
-**legacy and unsupported**. Do not spend time on them. `FileReplaySource` is the only path that matters.
+**One version (Chirag, 2026-10-07).** One layout, one pipeline (`pwt/process.py`, which both the app
+and `python -m pwt replay` call), one branch (`main`). The 2v2 profile, live capture, the CSV-sample
+importer and their tests were deleted. Do not reintroduce parallel paths; a second layout would need
+Chirag's say-so and its own measured profile.
 
 ## Target footage
 First-person **spectator**, round-based WoW room, 6v6, recorded with OBS from GameLoop.
@@ -32,6 +34,9 @@ lever on OCR accuracy. Replay samples at 12 fps by default (`--fps`); the record
 frame rate barely matters.
 
 ## Rules
+- **Match names against the run's roster only** (the app's names box, plus those players'
+  aliases: `db.roster_names`). Never against every name in the database: stored misreads
+  steal matches and break the margin rule (2026-10-07: 179 vs 312 of 385 rows named).
 - Read pixels only. Never touch the game's memory, files or network.
 - **Flag, never guess.** A wrong name is far worse than a flagged one. Rows that cannot be
   resolved are emitted with `flag=UNRESOLVED` and their raw OCR, never dropped.
@@ -46,8 +51,7 @@ frame rate barely matters.
   runner-up. Treating the roster as a membership test gives 0% accuracy.
 - **Read numbers with digit templates, not tesseract.** It misreads this HUD font: `52` → `2`,
   `12` → `2`, `11` → `1`.
-- HUD coordinates live in layout-profile JSON, never in code. Different footage needs a
-  different profile — see "Profiles" below. Do not tune one profile to satisfy two recordings.
+- HUD coordinates live in the layout-profile JSON, never in code.
 - Master clock = sampled frame index (t = index / fps). The in-game timer is a cross-check only.
   - The answer must not depend on `--fps`: eliminations must equal the Remaining counter's
     drops at every rate. Track and read on video time, never on frame counts.
@@ -58,45 +62,31 @@ frame rate barely matters.
 - Target Windows 10/11, fully offline. Use `pathlib`. Keep dependencies small.
 - Never commit videos (`*.mp4`, `*.mkv`). Test recordings live in `clips/`, which is gitignored.
 
-## Profiles
-| Profile | Footage | Row detector |
-|---|---|---|
-| `gameloop-windowed-1080p` | the 2026-10-01 2v2 test clip | `text` (density scan) |
-| `gameloop-spectator-6v6-1080p` | first-person spectator 6v6 | `panel` (dark-padding scan) |
-
-`feed.row_detect` picks between them. `panel` is required when the feed overlays moving scenery,
-because text density finds the scenery instead of the rows. `text` is required for the 2v2 clip,
-whose rows sit close enough that `panel` merges two rows into one 70px run. **Neither setting
-works for both.** Recording at a new resolution needs a new profile; `pwt calibrate` is the
-intended way to measure one.
+## The layout
+`pwt/profiles/gameloop-spectator-6v6-1080p.json` (`profiles.DEFAULT`): first-person spectator,
+6v6, GameLoop 1920x1080. The banner counts as up when >= 25% of each score box is team-coloured
+(a two-digit score covers sample pixels; that lost rounds 16-25 of a match). A round also starts
+on a Remaining reset after a board, and a round board for an unseen round creates that round.
 
 ## Known gaps — do not paper over these
-1. **Remaining digit templates are incomplete: 5, 8 and 9 are missing.**
-   `digits_remaining` was harvested from the 2v2 clip, which never went above 4,
-   so it held only {2,3,4}. 0,1,2,4,6,7 have since been harvested from the 6v6
-   recording and Remaining now reads correctly on 84% of frames. The 6v6 clip
-   never showed 5, 8 or 9, so those still need cutting from another recording.
-   Until then a frame showing one reads `None` -- flagged, never wrong.
-2. **6v6 helmet positions are not measured.** 6v6 draws helmets in two rows,
-   4 above and 2 below. The profile says so explicitly instead of guessing.
-   Without them an elimination has no team, so `_align` cannot use its team
-   filter and leans on the round and max-lag guards instead. This is the single
-   biggest remaining accuracy win.
-3. **Weapon templates: only UMP45.** Everything else reads `unknown`, by design:
-   an M416 matches the UMP45 template at 0.70, so a loose threshold invents
-   weapons. AKM, M416 and a headshot crosshair still need cutting.
-4. **The 6v6 scoreboard only captures 6 of 12 rows.** The rest need scrolling,
-   which is out of scope, so reconciliation against the board is partial.
-5. **Character templates for names (`chars_feed/`) do not exist yet.**
-   `chars.py` and `tools/harvest_chars.py` are written and waiting. Finishing
-   them removes the Tesseract dependency, which is what makes a self-contained
-   .exe practical.
+1. **Weapon templates: only UMP45.** Everything else reads `unknown`, by design: an M416
+   matches the UMP45 template at 0.70, so a loose threshold invents weapons. AKM, M416 and a
+   headshot crosshair still need cutting (Video_Project_13 shows several).
+2. **Banner score digits: only 0 and 1.** Round winners are not read yet. Video_Project_13
+   shows 5, 9 and 10.
+3. **The Remaining counter decides how many died.** A kill row that claims no drop (even after
+   the end-of-recording pass that lets late rows of a wipe claim their round's deaths) is
+   flagged `NO_DROP` and not counted. That is only safe while every Remaining digit reads:
+   0-9 and "11" were harvested 2026-10-07 (0 WRONG on Video_Project_13). Re-check it on any
+   new footage before trusting counts.
+4. **Character templates for names (`chars_feed/`) do not exist yet.** `chars.py` and
+   `tools/harvest_chars.py` are written and waiting. Finishing them removes Tesseract.
 
 ## Where things are
 - `pwt/engine/engine.py`: the per-frame engine.
 - `pwt/readers/`: feed, counters, screens, names, digits, chars, mask.
-- `pwt/profiles/*.json`: coordinates.
-- `pwt/templates/`: icons and digits. Rebuild with `tools/cut_templates.py`.
+- `pwt/profiles/gameloop-spectator-6v6-1080p.json`: coordinates.
+- `pwt/templates/`: icons and digits. Add digit shapes with `tools/harvest_board_digits.py` / `tools/harvest_remaining_digits.py`.
 - `pwt/db.py`: `LiveMatch`, rename/alias.
 - Status and findings: `docs/PWT_BRIEF.md` §12 and §15.
 
@@ -104,7 +94,7 @@ intended way to measure one.
 ```
 python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
 python tests/run_all.py
-python -m pwt replay clips\Video_Project_9.mp4 --profile gameloop-spectator-6v6-1080p --roster <names>
+python -m pwt replay clips\Video_Project_9.mp4 --roster <names>
 python app\main.py                                   # the desktop app from source
 ```
 `Video_Project_9.mp4` must give 14 eliminations at --fps 4, 12 and 24 (ARCHITECTURE §6).

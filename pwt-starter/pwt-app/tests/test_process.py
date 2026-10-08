@@ -43,9 +43,21 @@ def test_no_game_in_video_is_refused_then_reported():
 
 
 def test_wrong_layout_is_refused():
+    """Footage that does not match the layout is refused, not processed into plausible junk.
+    There is one layout, so a copy of it with every HUD box moved 300 px down stands in for
+    another one (a different emulator window, a different resolution)."""
     if not CLIP.exists(): skip(f"test clip not found at {CLIP}")
+    import json
+    from pwt import profiles
     d, dbp = _tmp_db()
-    r = process.process(CLIP, profile_name="gameloop-windowed-1080p", db_path=dbp, out_dir=d,
+    prof = json.loads((profiles.BUILTIN / f"{profiles.DEFAULT}.json").read_text(encoding="utf-8"))
+    def down(box): return [box[0], box[1] + 300, box[2], box[3] + 300]
+    prof["remaining_box"] = down(prof["remaining_box"]); prof["feed"]["box"] = down(prof["feed"]["box"])
+    for k in ("blue_score_box", "red_score_box"): prof["banner"][k] = down(prof["banner"][k])
+    for team in prof["banner"]["helmets"]["6"].values():
+        for pt in team: pt[1] += 300
+    moved = d / "moved.json"; moved.write_text(json.dumps(prof), encoding="utf-8")
+    r = process.process(CLIP, profile_name=str(moved), db_path=dbp, out_dir=d,
                         roster=["TheWolverine", "RGODxEMPEROR", "KG696969"])
     assert not r.ok and not r.layout_ok
 

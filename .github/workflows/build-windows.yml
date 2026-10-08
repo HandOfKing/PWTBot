@@ -1,6 +1,6 @@
 # Builds the portable Windows app (PWT-<version>-windows.zip).
 #
-#   push to stage-a-fix (app or pipeline code)  -> build + self-test, zip kept as a run artifact
+#   push to main (app or pipeline code)         -> build + self-test, the app kept as a run artifact
 #   push a tag v*  (git tag v0.1.0 && git push origin v0.1.0)  -> same, and attached to a GitHub Release
 #   Actions tab -> build-windows -> Run workflow                 -> same as a branch push
 #
@@ -10,7 +10,7 @@
 name: build-windows
 on:
   push:
-    branches: [stage-a-fix]
+    branches: [main]
     tags: ["v*"]
     paths:
       - "pwt-starter/pwt-app/pwt/**"

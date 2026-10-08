@@ -4,7 +4,7 @@
     1920,
     1080
   ],
-  "note": "Measured on Video_Project_9.mp4 (2026-10-04): GameLoop windowed, first-person SPECTATOR, 6v6, 1920x1080 @ 15.9 Mbps. The feed sits lower and its rows are ~32px tall, vs ~10px in the 2v2 clip, so these numbers do NOT transfer to gameloop-windowed-1080p and that profile must stay as it is for the regression test.",
+  "note": "The one layout: first-person SPECTATOR, 6v6 round-based WoW room, GameLoop 1920x1080. Measured on Video_Project_9 (2026-10-04); banner and Remaining checked on Video_Project_13 (2026-10-07).",
   "capture_region": [
     0,
     0,
@@ -39,7 +39,6 @@
     "gap_s": 1.0,
     "ocr_samples": 3,
     "min_ink_cols": 25,
-    "row_detect": "panel",
     "min_glyphs": 8,
     "glyph_h_min": 7,
     "glyph_h_max": 20,
@@ -68,36 +67,10 @@
     155
   ],
   "banner": {
-    "blue_pts": [
-      [
-        770,
-        75
-      ],
-      [
-        805,
-        110
-      ],
-      [
-        760,
-        100
-      ]
-    ],
-    "red_pts": [
-      [
-        1120,
-        75
-      ],
-      [
-        1150,
-        110
-      ],
-      [
-        1160,
-        100
-      ]
-    ],
     "blue_min_diff": 80,
     "red_min_diff": 70,
+    "box_min_frac": 0.25,
+    "box_min_frac_note": "Share of each score box (blue_score_box / red_score_box) that must be team-coloured for the banner to count as up. Video_Project_9/_13: 0.61-0.83 with a one-digit score, 0.38-0.40 with '10', 0.00 when hidden. Replaces three sample points that a two-digit score covered.",
     "blue_score_box": [
       772,
       66,
@@ -221,19 +194,8 @@
       "1": "blue",
       "2": "red"
     },
-    "scroll_drag": {
-      "from": [
-        1200,
-        950
-      ],
-      "to": [
-        1200,
-        350
-      ],
-      "move_ms": 150,
-      "settle_ms": 250,
-      "note": "placeholder - calibrate on a real 8v8 board"
-    }
+    "match_board_min_s": 5.0,
+    "match_board_min_s_note": "A board on screen at least this long, or still up when the recording ends, is the end-of-match board. Round boards are up 2.8-2.9 s (the game's Next Round countdown) on every round of 2026-10-04 22-55-47."
   },
   "max_align_lag_s": 12.0,
   "max_align_lag_note": "Feed rows are paced ~2.5 s apart, so a multi-kill backs the queue up: on Video_Project_9 four deaths at 146.5-147.0 s were printed until 155.4 s (8.9 s). 8.0 left the last one unaligned and its drop counted twice. Same-round guard still applies."

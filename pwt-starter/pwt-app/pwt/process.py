@@ -10,15 +10,15 @@ are the CLI's (`python -m pwt replay`), in the same order:
 Nothing here knows about Tk; it is tested on its own (tests/test_process.py).
 """
 from __future__ import annotations
-import csv, datetime as dt, threading, time
+import csv, datetime as dt, re, sys, threading, time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
 
-from . import db, export_excel, profiles
+from . import __version__, db, export_excel, profiles
 
-DEFAULT_PROFILE = "gameloop-spectator-6v6-1080p"
+DEFAULT_PROFILE = profiles.DEFAULT
 DEFAULT_FPS = 12
 
 
@@ -51,14 +51,29 @@ def video_info(path):
         cap.release()
 
 
-def profile_names():
-    """Built-in layout profiles, the 6v6 spectator one first."""
-    names = sorted(p.stem for p in profiles.BUILTIN.glob("*.json"))
-    return sorted(names, key=lambda n: n != DEFAULT_PROFILE)
+def bundled_roster():
+    """The group's names as shipped: roster.txt beside PWT.exe, or docs/roster.md from source."""
+    if getattr(sys, "frozen", False):
+        p = Path(sys.executable).parent / "roster.txt"
+        if p.exists():
+            return [l.strip() for l in p.read_text(encoding="utf-8").splitlines()
+                    if l.strip() and not l.startswith("#")]
+        return []
+    md = Path(__file__).resolve().parents[1] / "docs" / "roster.md"
+    out = []
+    if md.exists():
+        for line in md.read_text(encoding="utf-8").splitlines():
+            cells = [c.strip() for c in line.split("|")]
+            if len(cells) > 3 and cells[1].isdigit():
+                m = re.match(r"`([^`]+)`", cells[2])
+                if m: out.append(m.group(1))
+    return out
 
 
-def saved_roster(conn):
-    return [r[0] for r in conn.execute("SELECT ign FROM players ORDER BY ign COLLATE NOCASE")]
+def default_roster(folder=None):
+    """The names to offer for a run: the list used last time, else the bundled one. Never the
+    database's player table, which also holds names read off scoreboards."""
+    return db.last_roster(folder) or bundled_roster()
 
 
 def write_events_csv(conn, match_id, out):
@@ -77,12 +92,13 @@ def write_events_csv(conn, match_id, out):
 def match_counts(conn, match_id):
     """Headline numbers for the result panel."""
     q = lambda sql: conn.execute(sql, (match_id,)).fetchone()[0]
-    elim = "event_type IN ('kill','eliminated_knocked')"
+    elim = "event_type IN ('kill','eliminated_knocked') AND IFNULL(flag, '') <> 'NO_DROP'"
     return dict(
         eliminations=q(f"SELECT COUNT(*) FROM events WHERE match_id=? AND {elim}"),
         named=q(f"SELECT COUNT(*) FROM events WHERE match_id=? AND {elim} AND killer_id IS NOT NULL "
                 f"AND victim_id IS NOT NULL AND flag IS NULL"),
         no_feed_row=q("SELECT COUNT(*) FROM events WHERE match_id=? AND flag='NO_FEED_ROW'"),
+        no_drop=q("SELECT COUNT(*) FROM events WHERE match_id=? AND flag='NO_DROP'"),
         knocks=q("SELECT COUNT(*) FROM events WHERE match_id=? AND event_type='knock'"),
         to_review=q("SELECT COUNT(*) FROM events WHERE match_id=? AND flag IS NOT NULL AND reviewed=0"),
         rounds=q("SELECT COUNT(*) FROM rounds WHERE match_id=?"),
@@ -132,19 +148,20 @@ def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, t
     duration, w, h = video_info(path)
     conn = db.connect(db_path)
     db.recover_interrupted(conn)
+    folder = db.db_folder(conn)
+    roster = [n.strip() for n in roster if n and n.strip()] or default_roster(folder)
     earlier = db.find_match(conn, path.name, db.recorded_at_from_file(path))
     if earlier is not None:
         if not replace:
             return Result(ok=False, earlier_match=earlier)
-        db.delete_match(conn, earlier)
-    for n in roster:
-        if n.strip(): db.get_or_create_player(conn, n.strip())
-    conn.commit()
+        db.delete_match(conn, earlier, keep_players=roster)
+    db.save_roster(roster, folder)
     prof = profiles.load(profile_name)
 
     log(f"PWT  {dt.datetime.now():%Y-%m-%d %H:%M}  {path.name}  {w}x{h}  {duration / 60:.1f} min")
-    log(f"layout {profile_name}  sampling {fps:g} fps  team size {team_size}")
-    chk = hud.check(prof, path, team_size=team_size, roster=saved_roster(conn))
+    log(f"PWT {__version__}  layout {profile_name}  sampling {fps:g} fps  team size {team_size}  "
+        f"{len(roster)} names")
+    chk = hud.check(prof, path, team_size=team_size, roster=roster)
     log(chk.report())
     if not chk.ok and not force:
         return Result(ok=False, layout_ok=False, layout_report=chk.report())
@@ -153,7 +170,7 @@ def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, t
 
     names.reset_stats()
     src = FileReplaySource(path, fps=fps)
-    eng = Engine(prof, conn, roster=[n for n in roster if n.strip()], source_file=path.name,
+    eng = Engine(prof, conn, roster=roster, source_file=path.name, team_size=team_size,
                  recorded_at=db.recorded_at_from_file(path), log=log, data_dir=db.db_folder(conn))
     last = [0.0]
     def frame_cb(n, t):

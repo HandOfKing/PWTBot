@@ -3,6 +3,7 @@ import json, logging
 from pathlib import Path
 
 BUILTIN = Path(__file__).parent
+DEFAULT = "gameloop-spectator-6v6-1080p"     # the one layout: first-person spectator, 6v6, GameLoop 1080p
 TEMPLATES = Path(__file__).resolve().parents[1] / "templates"
 log = logging.getLogger(__name__)
 
@@ -45,9 +46,8 @@ def _scale_value(v, factor):
 _PIXEL_KEYS = {
     "box", "padding_px", "row_h_min", "row_h_max", "bridge",
     "capture_region", "game_area", "remaining_box", "creation_code_box",
-    "blue_pts", "red_pts", "blue_score_box", "red_score_box",
+    "blue_score_box", "red_score_box",
     "header_band", "player_col", "team_col", "table_y",
-    "from", "to",  # scroll_drag positions
 }
 
 
@@ -79,7 +79,7 @@ def _scale_profile(prof, frame_h):
     return scaled
 
 
-def load(name_or_path="gameloop-windowed-1080p", frame_size=None) -> Profile:
+def load(name_or_path=DEFAULT, frame_size=None) -> Profile:
     """A built-in profile name, or a path to a JSON file.
 
     *frame_size* is (width, height) of the video being analysed.
