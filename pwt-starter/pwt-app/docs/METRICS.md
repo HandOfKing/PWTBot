@@ -18,6 +18,20 @@ Clips live in `pwt-starter/pwt-app/clips/` (gitignored). If a clip is missing th
 | 10-07 | 151b03d | VP9 eliminations named, 12 fps | — | 14 of 14 *(from handoff)* | 4 fps names 9 of 14 |
 | 10-07 | 151b03d | VP13 rounds (`test_rounds.py`) | 3 rounds, elims {1:9, 2:6} | pass *(from handoff)* | also with banner off after 57 s |
 | 10-07 | 151b03d | Remaining digits on VP13 (`harvest_remaining_digits.py --check-only`) | 0 WRONG | 0 WRONG; held out 2664/2701 read *(from handoff)* | |
+| 10-08 | ce397e1 | `tests/run_all.py` | all pass | 37 ok, 0 skipped, 0 FAIL | pwt-verifier; PWT_DATA_DIR scratch; no psutil needed |
+| 10-08 | ce397e1 | VP9 eliminations, fps 4 / 12 / 24 | 14 / 14 / 14 | 14 / 14 / 14 | CSV rows kill+eliminated_knocked, flag != NO_DROP; 12 fps run twice, events CSV byte-identical |
+| 10-08 | ce397e1 | VP9 eliminations named (both killer and victim), fps 4 / 12 / 24 | — | 9 of 14 / 13 of 14 / 13 of 14 | 12 fps: 1 elim row UNRESOLVED (KG696969 kill at 36.167 s, no victim); handoff said 14 of 14 at 12 fps. Rows with both names, all event types, 12 fps: 28 of 30 (target >=20) |
+| 10-08 | ce397e1 | VP9 `KG696969` read | present | yes at all rates (3 / 3 / 4 elim rows at 4 / 12 / 24 fps) | |
+| 10-08 | ce397e1 | VP13 rounds (`test_rounds.py`) | 3 rounds, elims {1:9, 2:6} | pass (part of the 37 ok) | |
+| 10-08 | ce397e1 | Remaining digits on VP13 (`harvest_remaining_digits.py --check-only`) | 0 WRONG | 0 WRONG; 3978 frames, correct 3929, blank 49 | |
+| 10-08 | ce397e1 | Unflagged self-kills (VP9, 4 / 12 / 24 fps) | 0 | 0 / 0 / 0 | |
+| 10-08 | ce397e1 + dim fix | `tests/run_all.py` | all pass | 37 ok, 0 skipped, 0 FAIL | pwt-verifier; PWT_DATA_DIR scratch |
+| 10-08 | ce397e1 + dim fix | VP9 eliminations, fps 4 / 12 / 24 | 14 / 14 / 14 | 14 / 14 / 14 | kill+eliminated_knocked, flag != NO_DROP; 12 fps run twice, events CSV byte-identical |
+| 10-08 | ce397e1 + dim fix | VP9 eliminations named (both killer and victim), fps 4 / 12 / 24 | — | 13 of 14 / 13 of 14 / 13 of 14 | was 9 / 13 / 13; 12 fps: 1 elim row UNRESOLVED (KG696969 kill at 36.167 s, no victim). Rows with both names, all event types: 28 of 29 / 28 of 30 / 31 of 34 at 4 / 12 / 24 fps (target >=20) |
+| 10-08 | ce397e1 + dim fix | VP9 `KG696969` read | present | yes at all rates (3 / 3 / 4 elim rows at 4 / 12 / 24 fps) | |
+| 10-08 | ce397e1 + dim fix | VP13 rounds (`test_rounds.py`) | 3 rounds, elims {1:9, 2:6} | pass (part of the 37 ok) | |
+| 10-08 | ce397e1 + dim fix | Remaining digits on VP13 (`harvest_remaining_digits.py --check-only`) | 0 WRONG | 0 WRONG; 3978 frames, correct 3929, blank 49 | |
+| 10-08 | ce397e1 + dim fix | Unflagged self-kills (VP9, 4 / 12 / 24 fps) | 0 | 0 / 0 / 0 | |
 
 ## Full-match runs
 
@@ -29,7 +43,36 @@ KG 15, Star 11, Deathwish 8, Anoydyne 7, Trisha 7, Bruce 5, Wonder 0 (171 total)
 |---|---|---|---|---|---|---|---|---|---|
 | 10-07 | 0.1.0 | 24 | 22 / 25 | 219 | 100 | 43 | — | — | roster polluted by 119 stored misreads *(from handoff)* |
 | 10-07 | 0.2.0 (31beafb) | 12 | 25 / 25 | 171 = board | — | 30 | 16 | 22 | knocks = board Knock Outs for 5 players *(from handoff)* |
-| | 151b03d | | | | | | | | **next run goes here** |
+| 10-08 | 31beafb build (downloaded) | 24 | 25 / 25 | 171 = board | 123 | 30 | 27 | 22 | Chirag's run from the Actions artifact; same size as run 37712114825 |
+| 10-08 | 151b03d (source run) | 12 | 25 / 25 | 170 (board 171) | 139 | 22 | 18 | 26 | round 15's last death lost: its Remaining "3" scored 0.78-0.81 on the single "3" template; credited to a player 144 of 171 |
+| 10-08 | ce397e1 + dim fix | 12 | 25 / 25 | 170 | 151 | 12 | 16 | 29 | credited 155 of 171; 3 extra junk NO_DROP rows, not counted |
+| 10-09 | ce397e1 + dim fix + digits + board guards | 12 | 25 / 25 | **171 = board** | 152 | 12 | 16 | 28 | credited 156 of 171; no player over the board; per round counted = Remaining drops |
+
+"Named" = eliminations whose killer and victim are both named. "Credited" = eliminations credited to a
+player by the knocker rule (`v_elim_credit`).
+
+Match `2026-10-04 20-27-36` (19 rounds, 11 players: 6 + 5). Truth read by eye from the saved final-board
+frames: Star 11, Bruce 6, Makjets 14, Trisha 7, Wolverine 17, KG 21, Anoydyne 3, Wonder 0, RGOD 16,
+PARA 14, Khajwa 9 = 118; team scores 14 + 5 = 19 rounds. (The `h` row the board reader returns is junk.)
+
+| Date | App / commit | fps | Rounds | Elims counted | Named | NO_FEED_ROW | UNRESOLVED | NO_DROP | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 10-09 | ce397e1 + dim fix + digits | 12 | 20 / 19 | 119 (board 118) | 100 | 15 | 6 | 30 | phantom round 9: the board detector fired for 0.1 s after round 8's board; credited 101 of 118 |
+| 10-09 | + board guards | 12 | 19 / 19 | 119 (board 118) | 100 | 15 | 6 | 30 | one more death counted than the board credits, unexplained (probably a death that is not an elimination); per round counted = drops |
+
+Matches `2026-10-01 23-12-52` and `2026-10-03 00-55-11`: the recordings end without the end-of-match
+board, so there is no truth. Only consistency is checked (counted eliminations = Remaining drops per round,
+rounds <= 25, no self-kills).
+
+| Date | Match | App / commit | fps | Rounds | Elims counted | Named | NO_FEED_ROW | UNRESOLVED | NO_DROP | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10-09 | 10-01 23-12-52 | + dim fix + digits | 12 | 19 | 147 | 137 | 9 | 4 | 19 | near-miss warning: digit 1 rejected 57 times, digit 8 rejected 20 times (8 has one template) |
+| 10-09 | 10-03 00-55-11 | + dim fix + digits | 12 | 26 / 25 | 190 | 168 | 10 | 18 | 63 | phantom round 13 (board dipped 0.5 s); 37 junk NO_DROP rows in the last round after the match ended |
+| 10-09 | 10-03 00-55-11 | + board guards | 12 | 25 | 190 | 169 | 9 | 18 | 25 | phantom round and the junk tail gone |
+
+Remaining digits, unreadable frames while the HUD is live (frames in the dim are not read by the engine):
+22-55-47 315 -> 18 of 15194; 20-27-36 1720 -> 72 of 15944 (a match no template was harvested from);
+VP13 49 -> 2 of 3978. WRONG: 0 in all three.
 
 ## Spot clips
 
@@ -37,3 +80,32 @@ KG 15, Star 11, Deathwish 8, Anoydyne 7, Trisha 7, Bruce 5, Wonder 0 (171 total)
 |---|---|---|---|---|---|
 | 10-07 | 151b03d | `Output/clips/r20_24-15_25-15.mp4` (round 20) | eliminations named | 4 of 5 (was 0 of 4) | 5th death at 31.3 s has no row on screen *(from handoff)* |
 | 10-07 | 31beafb | 385 evidence crops of 22-55-47 | rows with both names | 179 → 312 | run roster instead of all DB names *(from handoff)* |
+
+## Final state of the 2026-10-09 work (code commit d6519b1: dim fix + digit templates + board guards + after-match skip + weapons)
+
+Definition of done on the final tree (pwt-verifier, scratch data folder):
+
+| Date | Check | Target | Result | Notes |
+|---|---|---|---|---|
+| 10-09 | `tests/run_all.py` | all pass | 39 ok, 0 skipped, 0 FAIL | +2 weapon tests; reader tests include a "3" and an "11" from a match no digit was cut from |
+| 10-09 | VP9 eliminations, fps 4 / 12 / 24 | 14 / 14 / 14 | 14 / 14 / 14 | 12 fps run twice, events CSV byte-identical |
+| 10-09 | VP9 eliminations with both names, fps 4 / 12 / 24 | — | 13 / 13 / 13 of 14 | rows with both names: 28/29, 28/30, 31/34; KG696969 read in 3 / 3 / 4 elimination rows |
+| 10-09 | VP13 Remaining digits (`--check-only`) | 0 WRONG | 0 WRONG; 3976 correct, 2 blank of 3978 | was 49 blank |
+| 10-09 | Unflagged self-kills (VP9, 4 / 12 / 24) | 0 | 0 / 0 / 0 | |
+| 10-09 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | weapon of every knock/elimination row shared between rates is the same; the 2 extra 24 fps rows are duplicate/fragment rows with no weapon |
+
+Four full matches at 12 fps with the final code (`Output/final3`). Counted eliminations = Remaining drops in
+every round of every match; no phantom rounds; no unflagged self-kills. "Credited" = to a player by the knocker
+rule. Board truth exists only for 22-55-47 (171) and 20-27-36 (118); the two older recordings end without one.
+
+| Match | Rounds | Elims counted | Both names | Credited | NO_FEED_ROW | UNRESOLVED | NO_DROP | Knock rows with a weapon |
+|---|---|---|---|---|---|---|---|---|
+| 22-55-47 (12 players) | 25 / 25 | **171 = board** | 152 | 156 / 171 | 12 | 16 | 28 | 196 / 198 |
+| 20-27-36 (11 players) | 19 / 19 | 119 (board 118) | 100 | 101 / 118 | 15 | 6 | 30 | 133 / 134 |
+| 10-01 23-12-52 | 19 | 147 | 137 | 137 | 9 | 4 | 19 | 155 / 155 |
+| 10-03 00-55-11 | 25 | 190 | 169 | 178 | 9 | 18 | 25 | 216 / 216 |
+
+Knocks against the board's Knock Outs (22-55-47, the only match with that column): 175 of 186 (94%); eleven short
+(RGOD 4, PARA 3, KG 2, one each Makjets, Khajwa, Wolverine); TrishaSingh one over; Deathwish's board value was not read.
+Near-miss digit notes (seconds of video a digit was rejected at 0.65-0.80): digit 1 in all four matches (1.7-4.7 s);
+digit 8 on 10-01 (1.7 s). 10-03: "kill feed not read for about 211 s of video (2082-2293 s): the match was over".

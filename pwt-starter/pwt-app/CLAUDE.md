@@ -70,16 +70,20 @@ frame rate barely matters.
 on a Remaining reset after a board, and a round board for an unseen round creates that round.
 
 ## Known gaps — do not paper over these
-1. **Weapon templates: only UMP45.** Everything else reads `unknown`, by design: an M416
-   matches the UMP45 template at 0.70, so a loose threshold invents weapons. AKM, M416 and a
-   headshot crosshair still need cutting (Video_Project_13 shows several).
+1. **Weapons: knock rows only.** `readers/weapons.py` names 28 guns from `templates/weapons/` (Chirag's
+   labels, 2026-10-09, `docs/weapons.md`); a gun that is not in the library, a partly drawn icon or two
+   look-alike guns read empty, by design. Kill and tombstone rows still read only UMP45, and the headshot
+   crosshair is not read.
 2. **Banner score digits: only 0 and 1.** Round winners are not read yet. Video_Project_13
    shows 5, 9 and 10.
 3. **The Remaining counter decides how many died.** A kill row that claims no drop (even after
    the end-of-recording pass that lets late rows of a wipe claim their round's deaths) is
    flagged `NO_DROP` and not counted. That is only safe while every Remaining digit reads:
-   0-9 and "11" were harvested 2026-10-07 (0 WRONG on Video_Project_13). Re-check it on any
-   new footage before trusting counts.
+   0-9 and "11" were harvested 2026-10-07 (0 WRONG on Video_Project_13); more "3", "11", "1", "2" and "9"
+   samples were added 2026-10-09 (DECISIONS M13). Digits 5, 7 and 8 still have ONE template each. A run
+   whose notes say "Remaining digit N was rejected ... at a near-miss score" needs more templates for N
+   (`tools/harvest_remaining_digits.py`, look at every glyph it saves). Re-check on any new footage before
+   trusting counts.
 4. **Character templates for names (`chars_feed/`) do not exist yet.** `chars.py` and
    `tools/harvest_chars.py` are written and waiting. Finishing them removes Tesseract.
 
