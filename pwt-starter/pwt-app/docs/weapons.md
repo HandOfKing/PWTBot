@@ -16,7 +16,7 @@ matches of 2026-10-01..04, plus his answers on the "unknown" and "look-alike" sh
 | AR | M416, AKM, Beryl M762, AUG A3, Groza, SCAR-L, FAMAS, G36C, ACE32 |
 | SMG | PP19 Bison, UMP45, Micro Uzi, Tommy Gun, P90, JS9, Vector, MP5K |
 | Shotgun | DBS, S12K, S1897 |
-| LMG | M249, MG3 (Chirag called the M249 a "DMR"; it is filed as an LMG) |
+| LMG | M249, MG3 (the M249 is a light machine gun; Chirag, 2026-10-09: "not a DMR") |
 | Sniper | AWM |
 | Other | Grenade, Molotov, Pan (melee), Car (a vehicle knock), Zone (the blue zone; the "killer" is not a player) |
 

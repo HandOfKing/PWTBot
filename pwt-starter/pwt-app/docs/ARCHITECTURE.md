@@ -177,6 +177,7 @@ A change is acceptable only if all of these hold:
 | `docs/RUNBOOK.md` | how to run it | when the CLI changes |
 | `docs/roster.md` | exact player spellings | when players change |
 | `docs/DECISIONS.md` | decisions with dates, measured rules, tried-and-rejected ideas with their numbers | when Chirag decides or an experiment ends |
+| `docs/weapons.md` | the weapon library for knock rows: guns, categories, how it was built and tested, its limits, how to add a gun | when a gun is added (Chirag, 2026-10-09) |
 | `docs/METRICS.md` | every benchmark and full-match result, by commit | every measurement |
 | `docs/handoff/HANDOFF-*.md` | current status, what's left (newest wins) | every session |
 | `claude/spectator-feed-reference.md` (project) | 6v6 HUD calibration + evidence | when recalibrated |
