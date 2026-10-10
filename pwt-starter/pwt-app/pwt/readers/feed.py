@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import cv2, numpy as np
 from .mask import white_mask
+from .weapons import WeaponReader
 from . import names
 
 
@@ -40,6 +41,7 @@ class Row:
     icon_scores: dict           # {'weapon_UMP45': 0.95, ...}
     row_mask: np.ndarray        # full-row white mask (0/1) for OCR
     crop: np.ndarray            # colour crop of the whole row, for evidence
+    knock_weapon: str = None    # the gun read by readers/weapons.py (knock rows only), else None
 
     @property
     def etype(self):
@@ -51,6 +53,8 @@ class Row:
 
     @property
     def weapon(self):
+        if "icon_knock" in self.icons:
+            return self.knock_weapon       # knock rows: the weapon library (readers/weapons.py)
         for n in self.icons:
             if n.startswith("weapon_"):
                 if self.icon_scores.get(n, 0) >= self._weapon_thresh:
@@ -88,17 +92,24 @@ class FeedReader:
         self.ink_band_h = f.get("ink_band_h", [8, 26])
         self.ink_start_x = f.get("ink_start_x", [114, 130])
         self.weapon_blob_w = f.get("weapon_blob_w", 45)
+        self.dim_mask_thr = f.get("dim_mask_thr")          # None = relative threshold also when dimmed
         self.icon_thresh = f.get("icon_thresh", 0.62)
         self.weapon_thresh = f.get("weapon_thresh", 0.80)
         self.icons = load_icons(profile.templates / "icons")
+        # A knock row's gun: one template per gun (templates/weapons), named only above weapon_thresh AND
+        # with no other gun within weapon_margin (a close pair is "unknown", not a guess).
+        self.weapons = WeaponReader(profile.templates / "weapons", thresh=self.weapon_thresh,
+                                    margin=f.get("weapon_margin", 0.05), win_px=f.get("weapon_window_px", 150))
 
-    def rows(self, frame, fallback=True):
+    def rows(self, frame, fallback=True, dim=False):
         """Feed rows on this frame. fallback=False switches the A11 in-run text
-        search off for this frame (the engine uses it only off live play)."""
+        search off for this frame (the engine uses it only off live play).
+        dim=True: the round-end dim is up, so the text mask uses the profile's fixed
+        dim_mask_thr (see mask.white_mask)."""
         x0, y0, x1, y1 = self.box
         crop = frame[y0:y1, x0:x1]
         g = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-        m = white_mask(crop)
+        m = white_mask(crop, self.dim_mask_thr if dim else None)
         out = []
         for band in self._row_bands(m, g, fallback):
             ry0, ry1 = band[:2]
@@ -134,6 +145,9 @@ class FeedReader:
                     row_mask=m[a:b, :].copy(),
                     crop=crop[max(0, ry0 - 8):ry1 + 8, :].copy())
             r._weapon_thresh = self.weapon_thresh
+            if "icon_knock" in r.icons:
+                kx = next(c[1] for c in icons if c[3] == "icon_knock")
+                r.knock_weapon = self.weapons.read(m[a:b, :], kx)
             out.append(r)
         return out
 

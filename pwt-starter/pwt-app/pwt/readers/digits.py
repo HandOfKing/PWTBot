@@ -6,9 +6,13 @@ Each font gets its own folder of glyph PNGs named <digit>_<n>.png:
   digits_remaining/  the Remaining counter
   digits_banner/     the round banner score
 """
-import glob, os, cv2, numpy as np
+import collections, glob, os, cv2, numpy as np
 
 SIZE = (16, 24)
+# A glyph that scores in [NEAR_MISS, min_score) was probably the right digit read against too few
+# templates (22-55-47 round 15: a "3" scored 0.78-0.81 against its single template and was rejected on
+# 41 of 46 frames). Counted per digit so a run can say so; never accepted.
+NEAR_MISS = 0.65
 
 
 def _norm(g):
@@ -19,6 +23,8 @@ def _norm(g):
 class DigitReader:
     def __init__(self, folder, min_score=0.80, min_h=10):
         self.folder, self.min_score, self.min_h = str(folder), min_score, min_h
+        self.near_miss = collections.Counter()      # digit -> reads rejected between NEAR_MISS and min_score
+        self.last_near = None                       # the digit named by the latest read if it was a near miss
         self.reload()
 
     def reload(self):
@@ -73,10 +79,15 @@ class DigitReader:
 
     def read(self, cell_bgr):
         """(int or None, weakest glyph score)."""
+        self.last_near = None
         gs = self.glyphs(cell_bgr)
         if not gs or not self.templates: return None, 0.0                  # None: unsplittable ink
         ds, scores = zip(*(self.classify(g) for g in gs))
-        if min(scores) < self.min_score: return None, round(min(scores), 2)
+        if min(scores) < self.min_score:
+            if min(scores) >= NEAR_MISS:                                   # probably the digit named, too few templates
+                self.last_near = ds[scores.index(min(scores))]
+                self.near_miss[self.last_near] += 1
+            return None, round(min(scores), 2)
         return int("".join(ds)), round(min(scores), 2)
 
     def harvest(self, cell_bgr, text):

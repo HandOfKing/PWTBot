@@ -52,7 +52,12 @@
     "ink_start_x": [
       114,
       130
-    ]
+    ],
+    "weapon_margin": 0.05,
+    "weapon_window_px": 150,
+    "weapon_note": "Knock-row gun (readers/weapons.py): a gun is named at score >= weapon_thresh AND >= weapon_margin ahead of the next gun. Held-out matches: every correct reading had a margin >= 0.08, so 0.05 costs nothing and refuses lookalikes (AKM / S12K / Beryl M762). weapon_window_px: the gun is searched in this many columns left of the knock icon (the longest icon, an AWM, is ~76 px; thin barrels break into pieces, so no ink-gap cut-out).",
+    "dim_mask_thr": 22,
+    "dim_mask_thr_note": "Text-mask threshold while the round-end dim is up. The DRAW/VICTORY banner stripes lift the 99.8th percentile of the top-hat to ~97, so the relative threshold (~44) hid the greyed feed rows (22-55-47 round 3, 240-242 s: relative = 0 rows, 22 = both tombstone rows). Greyed text top-hat is ~25-40."
   },
   "remaining_box": [
     186,

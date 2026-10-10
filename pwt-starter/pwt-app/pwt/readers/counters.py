@@ -16,7 +16,7 @@ class CounterReader:
         self.alive, self.dead = b["helmet_alive_above"], b["helmet_dead_above"]
         self.remaining = DigitReader(profile.templates / "digits_remaining")
         self.banner_digits = DigitReader(profile.templates / "digits_banner")
-        self._last_rem_crop, self._last_rem = None, None
+        self._last_rem_crop, self._last_rem, self._last_near = None, None, None
 
     def _box_frac(self, im, key, blue):
         x0, y0, x1, y1 = self.p["banner"][key]
@@ -43,9 +43,11 @@ class CounterReader:
         x0, y0, x1, y1 = self.p["remaining_box"]
         crop = im[y0:y1, x0:x1]
         if self._last_rem_crop is not None and np.abs(crop.astype(np.int16) - self._last_rem_crop).mean() < 3:
+            if self._last_near is not None:
+                self.remaining.near_miss[self._last_near] += 1       # per FRAME, not per read: the run note is in seconds
             return self._last_rem
         v, _ = self.remaining.read(crop)
-        self._last_rem_crop, self._last_rem = crop.astype(np.int16), v
+        self._last_rem_crop, self._last_rem, self._last_near = crop.astype(np.int16), v, self.remaining.last_near
         return v
 
     def helmet_state(self, im, x, y):

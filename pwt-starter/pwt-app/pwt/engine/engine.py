@@ -1,13 +1,15 @@
-"""The PWT engine: one frame at a time, identical for live capture and replay (brief §4).
+"""The PWT engine: one frame at a time, the same code behind the app and `python -m pwt replay`.
 
-    engine = Engine(profile, conn, source_file="live")
+    engine = Engine(profile, conn, source_file="match.mkv")
     for t, frame in source.frames():
         engine.process(t, frame)
     summary = engine.finish()
 
 Per frame: screen state -> Remaining / helmets / banner score while a round is live -> kill-feed line tracking
-(also during the round-end dim) -> scoreboard rows while a board is up. Every confirmed item is written through
-db.LiveMatch immediately, so a crash keeps everything captured so far.
+(also during the round-end dim, with the dim text threshold; not on a scoreboard, and not once the match is over:
+see Engine._match_over) -> scoreboard rows while a board is up. A board detected again within BOARD_REAPPEAR_S of
+one closing is its fade-out, not a new board. Every confirmed item is written through db.LiveMatch immediately,
+so a crash keeps everything captured so far.
 """
 from __future__ import annotations
 import queue, threading, time
@@ -27,6 +29,13 @@ LATE_ELIM_S = 15.0       # ... and so is a kill row this soon, while its round h
 LATE_LAG_S = 25.0        # the oldest death a late row (or the end-of-recording pass) may claim
 BACKLOG_S = 3.5         # the feed trails a death by up to this long; an older free death is not this row's (_align)
 TIMELY_S = 1.5           # a row this soon after a free death is that death's row (_align)
+BOARD_REAPPEAR_S = 2.0   # a board detected again this soon after one closed is its fade-out or a flicker. 2026-10-04
+                         # 20-27-36: round 8's board closed at 858.08 s and the detector fired again for 0.1 s at
+                         # 858.25 s; 2026-10-03 00-55-11: a board dipped for 0.5 s at 1002.5 s. Each created a phantom
+                         # round (0 s long). A real next board is a whole round away (the shortest seen is 19 s).
+NEAR_MISS_NOTE_S = 1.5   # a Remaining digit rejected at a near-miss score for this long is worth a note
+MATCH_OVER_S = 25.0      # no board for this long, and nothing since it shows a round, = the match has ended (the longest
+                         # a late wipe row trails its round is ~15 s; 25 s leaves margin)
 COUNTER_AFTER_S = 1.0   # the Remaining counter may change up to this long AFTER the feed row appears:
                          # the new digit animates in and is unreadable for a few frames. 2026-10-04
                          # 22-55-47 at 24 fps: rows 0.41 s before their drop were flagged NO_DROP.
@@ -100,6 +109,26 @@ class Engine:
         self.board_pending = None           # a closed board whose rows are still being read
         self.last_t, self.frames, self.t_cpu = 0.0, 0, 0.0
         self.notes = []
+        self.live_since_board = False       # a round banner has been up since the last board closed
+        self.skipped = []                   # [start_s, end_s] spans where the feed was not read (match over)
+
+    def _match_over(self, t):
+        """The match has ended: the last board closed more than MATCH_OVER_S ago and since then there has been
+        no round banner, no Remaining drop and no Remaining reset. Every one of those would show a round
+        (banner missed -> a drop or a reset still does), so none of them means no game is being played. The
+        recording usually runs on over the game's results screen, whose name tags and player list read as
+        feed rows (2026-10-03 00-55-11: 37 junk rows). The first round after a board, however late, turns
+        the feed back on."""
+        return (self.state == "BETWEEN" and self.last_board_close is not None
+                and t - self.last_board_close > MATCH_OVER_S
+                and not self.live_since_board and self.reset_at is None
+                and not (self.drops and self.drops[-1]["t"] is not None and self.drops[-1]["t"] >= self.last_board_close))
+
+    def _skip_span(self, t):
+        if self.skipped and t - self.skipped[-1][1] <= 1.0:
+            self.skipped[-1][1] = t
+        else:
+            self.skipped.append([t, t])
 
     # ------------------------------------------------------------------ main loop
     def process(self, t, frame):
@@ -119,7 +148,12 @@ class Engine:
                 self._live(t, frame)
             elif self.state == "ROUND_LIVE":
                 self._banner_missing(t)
-            self._feed(t, frame, fallback=(st != "live"))
+            if st == "live":
+                self.live_since_board = True
+            if self._match_over(t):
+                self._skip_span(t)               # end-of-match screens: in-world name tags and the results list
+            else:
+                self._feed(t, frame, fallback=(st != "live"), dim=(st == "dimmed"))
         self.t_cpu += time.perf_counter() - c0
 
     # ------------------------------------------------------------------ match / rounds
@@ -249,13 +283,13 @@ class Engine:
                 break
 
     # ------------------------------------------------------------------ kill feed
-    def _feed(self, t, frame, fallback=True):
+    def _feed(self, t, frame, fallback=True, dim=False):
         # A11's in-run text search runs only off live play. Every feed row the
         # panel detector missed on Video_Project_9 was at a round end (screen
         # fading, rows on screen < 0.5 s); during live play it mostly found
         # in-world nameplates drifting past the feed, and one of those stole a
         # real row's identity (37.9 s) and split it into two events.
-        rows = self.feed.rows(frame, fallback=fallback)
+        rows = self.feed.rows(frame, fallback=fallback, dim=dim)
         for line in self.tracker.update(t, rows):
             self._confirm(line)
 
@@ -436,6 +470,9 @@ class Engine:
 
     # ------------------------------------------------------------------ scoreboards
     def _scoreboard(self, t, frame):
+        if (self.state != "SCOREBOARD" and self.last_board_close is not None
+                and t - self.last_board_close < BOARD_REAPPEAR_S):
+            return                      # the old board's fade-out, not a new board (see BOARD_REAPPEAR_S)
         if self.state != "SCOREBOARD":
             if self.board_pending: self._save_board(wait=True)         # back-to-back boards (rare)
             if self.state == "ROUND_LIVE":
@@ -475,6 +512,7 @@ class Engine:
         else:
             rnd = self._missed_round(self.sb_started)
         self.round_closed, self.last_board_close = True, t
+        self.live_since_board = False       # _match_over: nothing has shown a round since THIS board
         self.board_pending = dict(round=rnd, closed=t, started=self.sb_started, kept=self.sb_kept)
         self.state = "BETWEEN"
         self._save_board(wait=True)
@@ -688,6 +726,24 @@ class Engine:
             self.notes.append(f"NO OCR ENGINE: {ns['no_engine']} name reads returned nothing because "
                               f"there are no character templates and tesseract was not found - "
                               f"names in this run are not trustworthy")
+        if self.skipped:
+            secs = sum(b - a for a, b in self.skipped)
+            spans = ", ".join(f"{a:.0f}-{b:.0f} s" for a, b in self.skipped[:3]) + (" ..." if len(self.skipped) > 3 else "")
+            to_the_end = len(self.skipped) == 1 and self.skipped[0][1] >= self.last_t - 1.0     # one span, up to the last frame
+            if to_the_end:
+                self.notes.append(f"kill feed not read for about {secs:.0f} s of video ({spans}): the match was over "
+                                  f"(no round banner, Remaining drop or reset since the last board)")
+            else:
+                self.notes.append(f"WARNING: kill feed not read for about {secs:.0f} s of video ({spans}) but the recording "
+                                  f"went on with play afterwards: knock rows in that stretch are missing")
+        # A Remaining digit that looked right but scored under the cut-off is a gap in the template
+        # library, and every frame it is rejected on can delay or lose a death. Say so. Counted in reads, so
+        # it is turned into seconds of video with the sampling rate (the notes must not depend on --fps).
+        rate = self.frames / self.last_t if self.last_t else 12.0
+        for dg, n in sorted(self.counters.remaining.near_miss.items()):
+            if n / rate >= NEAR_MISS_NOTE_S:
+                self.notes.append(f"Remaining digit {dg} was rejected for about {n / rate:.1f} s of video at a near-miss "
+                                  f"score (0.65-0.80): add templates with tools/harvest_remaining_digits.py")
         if ns["launch_error"]:
             self.notes.append(f"tesseract failed to start on {ns['launch_error']} read(s)")
         if ns["timeout"]:
