@@ -5,7 +5,8 @@
   turns them into a table of eliminations.
 - Chirag records the match himself and runs the tool afterwards: the desktop app (`app/main.py`,
   shipped as a Windows zip) or one command (`python -m pwt replay`). Recording in, tables out.
-- Events land in SQLite, browsable by date and exportable to Excel.
+- Events land in SQLite, browsable by date and exportable to Excel. A run writes ONE workbook next to the
+  recording (Scoreboard, Highlights, Events, Run log); there is no events CSV or log file any more (D12).
 
 **Read `docs/ARCHITECTURE.md` first — it is the contract: the pipeline, the
 invariants, and the definition of done. Then `docs/DECISIONS.md` (what is decided and what was
@@ -86,6 +87,9 @@ on a Remaining reset after a board, and a round board for an unseen round create
    trusting counts.
 4. **Character templates for names (`chars_feed/`) do not exist yet.** `chars.py` and
    `tools/harvest_chars.py` are written and waiting. Finishing them removes Tesseract.
+5. **Highlights thresholds are first guesses** (`pwt/awards.py`, D13/D14). Clutch has never fired on the four
+   matches we have, so it is checked on synthetic events only; weapon-class roles need 3 knocks. Roles are
+   built from knocks only (~94% of the board's Knock Outs) and a partly read board makes "N of M" a lower bound.
 
 ## Where things are
 - `pwt/engine/engine.py`: the per-frame engine.
@@ -93,6 +97,7 @@ on a Remaining reset after a board, and a round board for an unseen round create
 - `pwt/profiles/gameloop-spectator-6v6-1080p.json`: coordinates.
 - `pwt/templates/`: icons and digits. Add digit shapes with `tools/harvest_board_digits.py` / `tools/harvest_remaining_digits.py`.
 - `pwt/db.py`: `LiveMatch`, rename/alias.
+- `pwt/awards.py`: the Highlights roles (pure functions on events; tests/test_awards.py). `pwt/export_excel.py` writes the workbook.
 - Status: the newest `docs/handoff/HANDOFF-*.md`. Why things are the way they are, and the ideas
   already rejected with their numbers: `docs/DECISIONS.md`. Numbers over time: `docs/METRICS.md`.
 - `docs/PWT_BRIEF.md` is the SUPERSEDED live-capture design (2026-10-02). Historical only; do not build from it.
