@@ -4,8 +4,8 @@ PWT reads OBS recordings of World of Wonder custom rooms (first-person spectator
 round-based, GameLoop 1920x1080) and produces:
 - every knock and elimination, with **true times**, killer, victim and round
 - the **end-of-match scoreboard** for every player (eliminations, assists, damage dealt and
-  taken, knock outs), and the round boards
-- an Excel workbook and CSV per match; every match is kept in SQLite
+  taken, knock outs)
+- one Excel workbook per match (Scoreboard, Highlights, Events, Run log); every match is kept in SQLite
 
 One version: one layout, one pipeline (`pwt/process.py`) behind both the desktop app and the
 command line, one branch (`main`). Rules for Claude Code: [`CLAUDE.md`](CLAUDE.md).
@@ -28,7 +28,7 @@ Test recordings go in `clips\` (gitignored; never commit videos).
 
 ## Layout
 ```
-pwt/process.py           one recording in, xlsx / csv / log out (the app and `pwt replay` both call it)
+pwt/process.py           one recording in, one xlsx out (the app and `pwt replay` both call it)
 pwt/engine/engine.py     screen state, rounds, Remaining timing, feed lines, alignment, scoreboards
 pwt/readers/             feed rows, counters (Remaining, banner, helmets), screens (scoreboards),
                          digits (templates), names (OCR + roster matching)

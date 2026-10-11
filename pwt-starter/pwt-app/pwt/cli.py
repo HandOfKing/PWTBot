@@ -52,7 +52,7 @@ def main(argv=None):
     sub.add_parser("where")
     s = sub.add_parser("replay"); s.add_argument("file"); s.add_argument("--fps", type=float, default=process.DEFAULT_FPS)
     s.add_argument("--roster", nargs="*", default=[])
-    s.add_argument("--out", help="folder for the xlsx / csv / log (default: next to the recording)")
+    s.add_argument("--out", help="folder for the xlsx (default: next to the recording)")
     s.add_argument("--replace", action="store_true", help="replace an earlier result for this recording")
     s.add_argument("--force", action="store_true",
                    help="run even if the layout does not fit the footage (every row suspect)")
@@ -82,7 +82,7 @@ def main(argv=None):
             print(r.error or "No table was produced."); return 1
         print("\nSummary:", r.summary)
         _print_match(conn, r.match_id)
-        print("\nwrote", r.xlsx_path, "\n     ", r.csv_path, "\n     ", r.log_path)
+        print("\nwrote", r.xlsx_path)
     elif a.cmd == "show":
         _print_match(conn, a.match_id)
     elif a.cmd == "players":

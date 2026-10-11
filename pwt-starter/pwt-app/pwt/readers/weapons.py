@@ -19,7 +19,7 @@ than 5 columns apart, which left 109 of 703 knock rows without an icon. Window s
 import glob, os
 import cv2, numpy as np
 
-# Category of each gun, for the planned match highlights (nothing reads this yet). M249 is a light machine gun.
+# Category of each gun, read by pwt/awards.py for the weapon roles on the Highlights sheet. M249 is a light machine gun.
 CATEGORY = {
     "M416": "AR", "AKM": "AR", "Beryl M762": "AR", "AUG A3": "AR", "Groza": "AR", "SCAR-L": "AR", "FAMAS": "AR",
     "G36C": "AR", "ACE32": "AR",

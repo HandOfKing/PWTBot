@@ -93,6 +93,21 @@ Definition of done on the final tree (pwt-verifier, scratch data folder):
 | 10-09 | VP13 Remaining digits (`--check-only`) | 0 WRONG | 0 WRONG; 3976 correct, 2 blank of 3978 | was 49 blank |
 | 10-09 | Unflagged self-kills (VP9, 4 / 12 / 24) | 0 | 0 / 0 / 0 | |
 | 10-09 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | weapon of every knock/elimination row shared between rates is the same; the 2 extra 24 fps rows are duplicate/fragment rows with no weapon |
+| 10-10 | `tests/run_all.py` (one-workbook change, tree dirty on 076f5f2, 15 files) | all pass | 54 ok, 0 skipped, 0 FAIL | includes 15 test_awards tests |
+| 10-10 | VP9 eliminations, fps 4 / 12 / 24 (Events sheet of `- PWT.xlsx`, Type kill+eliminated_knocked, Flag != NO_DROP) | 14 / 14 / 14 | 14 / 14 / 14 | 12 fps run twice: True time (s), Type, Killer, Victim, Weapon, Flag identical over 30 rows |
+| 10-10 | VP9 eliminations with both names, fps 4 / 12 / 24 | — | 13 / 13 / 13 of 14 | feed rows with both names: 28/29, 28/30, 31/34; KG696969 in 3 / 3 / 4 elimination rows (8 / 8 / 10 rows of any type); same as 10-09 |
+| 10-10 | VP13 Remaining digits (`--check-only`) | 0 WRONG | 0 WRONG; 3976 correct, 2 blank of 3978 | same as 10-09 |
+| 10-10 | Unflagged self-kills (VP9, 4 / 12 / 24) | 0 | 0 / 0 / 0 | |
+| 10-10 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | same as 10-09 |
+| 10-10 | `app/main.py --selftest` | PASS | PASS (8 checks ok) | headless, PWT 0.2.0 |
+| 10-10 | 22-55-47 full run through `python -m pwt replay` (12 fps), new pipeline | one workbook; eliminations = board 171 | one `- PWT.xlsx` (Scoreboard, Highlights, Events, Run log); 171 eliminations (Events sheet, Flag != NO_DROP), 198 knock rows, 188 usable for roles vs 186 on a partly read board | Highlights: 18 role rows for 12 players; roles not yet checked by Chirag. Clutch dropped from 5 claims to 1 once the 3.5 s feed lag was applied (pwt-reviewer finding) |
+| 10-11 | `tests/run_all.py` (awards rewrite D13/D14, tree dirty on 076f5f2, 17 files) | all pass | 56 ok, 0 skipped, 0 FAIL | 17 test_awards tests (was 15); scratch PWT_DATA_DIR |
+| 10-11 | VP9 eliminations, fps 4 / 12 / 24 (Events sheet of `- PWT.xlsx`, Type kill+eliminated_knocked, Flag != NO_DROP) | 14 / 14 / 14 | 14 / 14 / 14 | 12 fps run twice: True time (s), Type, Killer, Victim, Weapon, Flag identical over 30 rows; same as 10-10 |
+| 10-11 | VP9 eliminations with both names, fps 4 / 12 / 24 | — | 13 / 13 / 13 of 14 | feed rows with both names: 28/29, 28/30, 31/34; KG696969 in 3 / 3 / 4 elimination rows (8 / 8 / 10 rows of any type); same as 10-10 |
+| 10-11 | VP13 Remaining digits (`--check-only`) | 0 WRONG | 0 WRONG; 3976 correct, 2 blank of 3978 | same as 10-10 |
+| 10-11 | Unflagged self-kills (VP9, 4 / 12 / 24) | 0 | 0 / 0 / 0 | |
+| 10-11 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | same as 10-10 |
+| 10-11 | `app/main.py --selftest` | PASS | PASS (8 checks ok) | headless, PWT 0.2.0 |
 
 Four full matches at 12 fps with the final code (`Output/final3`). Counted eliminations = Remaining drops in
 every round of every match; no phantom rounds; no unflagged self-kills. "Credited" = to a player by the knocker

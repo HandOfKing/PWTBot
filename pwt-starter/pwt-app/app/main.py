@@ -274,7 +274,7 @@ class App:
             + "".join(f"Check: {n}\n" for n in res.summary.get("notes", ())
                       if n.startswith(("on the scoreboard but not in the player list", "no end-of-match",
                                        "end-of-match scoreboard:")))
-            + f"Saved: {res.xlsx_path.name}  (+ events CSV and log)")
+            + f"Saved: {res.xlsx_path.name}  (scoreboard, highlights, events and log in one file)")
         self.b_xlsx.configure(state="normal"); self.b_folder.configure(state="normal")
         self.v_status.set(("Stopped early - partial result saved. " if res.cancelled else "Done. ")
                           + f"Took {took}.")
@@ -316,14 +316,14 @@ class App:
         if len(sel) == 1:
             m = self.conn.execute("SELECT recorded_at, source_file FROM matches WHERE id=?", (int(sel[0]),)).fetchone()
             p = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel", "*.xlsx")],
-                                             initialfile=f"{Path(m['source_file']).stem} - PWT.xlsx")
+                                             initialfile=f"{Path(m['source_file']).stem} - PWT export.xlsx")
             if p: export_excel.export_match(self.conn, int(sel[0]), p); open_path(p)
         else:
             d = filedialog.askdirectory(title="Save one workbook per match to")
             if not d: return
             for mid in sel:
                 m = self.conn.execute("SELECT source_file FROM matches WHERE id=?", (int(mid),)).fetchone()
-                export_excel.export_match(self.conn, int(mid), Path(d) / f"{Path(m['source_file']).stem} - PWT.xlsx")
+                export_excel.export_match(self.conn, int(mid), Path(d) / f"{Path(m['source_file']).stem} - PWT export.xlsx")
             open_path(d)
 
     def export_all(self):
@@ -413,7 +413,6 @@ def selftest(out):
         lm.finish()
         p = tmp / "selftest.xlsx"
         export_excel.export_match(conn, lm.id, p)
-        process.write_events_csv(conn, lm.id, tmp / "selftest.csv")
         assert p.stat().st_size > 1000
         return f"{p.stat().st_size} bytes"
     check("excel export", excel)

@@ -70,7 +70,8 @@ def test_stop_keeps_the_partial_match():
         if done >= 45: stop.set()
     r = process.process(CLIP, db_path=dbp, out_dir=d, stop_event=stop, on_progress=prog,
                         roster=["KG696969", "Makjets69", "Sarthakkkd", "BruceWayne³"])
-    assert r.ok and r.cancelled and r.xlsx_path.exists() and r.csv_path.exists()
+    assert r.ok and r.cancelled and r.xlsx_path.exists()
+    assert sorted(p.name for p in d.glob("*.xlsx")) == [r.xlsx_path.name] and not list(d.glob("*.csv"))   # one file
     import sqlite3
     st = sqlite3.connect(dbp).execute("SELECT status FROM matches WHERE id=?", (r.match_id,)).fetchone()[0]
     assert st == "interrupted"

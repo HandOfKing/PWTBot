@@ -82,7 +82,7 @@ video file
    │
    ├─ 8  PERSISTENCE        db.py:LiveMatch  (SQLite, committed as it goes)
    │
-   └─ 9  OUTPUT             CSV · Excel · (planned) review GUI
+   └─ 9  OUTPUT             one Excel workbook (Scoreboard · Highlights · Events · Run log) · (planned) review GUI
 ```
 
 ### Three independent signals
@@ -155,7 +155,8 @@ A change is acceptable only if all of these hold:
 - `python tests/run_all.py` — all pass.
 - **Elimination count** on `Video_Project_9.mp4`: events of type `kill` +
   `eliminated_knocked` equal the Remaining counter's 14 drops at `--fps` 4, 12
-  and 24, and the event CSV is identical when the run is repeated.
+  and 24, and the Events sheet of the workbook (time, type, killer, victim, weapon,
+  flag) is identical when the run is repeated.
 - **6v6 benchmark** on `Video_Project_9.mp4`: ≥20 feed rows resolve both names,
   and `KG696969` is among the names read correctly.
 - **Rounds** on `Video_Project_13.mp4` (rounds 15-17 of 2026-10-04 22-55-47,

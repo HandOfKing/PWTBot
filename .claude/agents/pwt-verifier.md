@@ -22,10 +22,13 @@ rows of `docs/METRICS.md` before running anything, so you can compare.
    ```
    python -m pwt --db <scratch>/vp9_<fps>.db replay clips/Video_Project_9.mp4 --fps <fps> --out <scratch>/vp9_<fps> --replace --quiet --roster <names from docs/roster.md>
    ```
-   for fps 4, 12 and 24. From each `... - PWT events.csv` count rows with `event_type` in
-   (`kill`, `eliminated_knocked`) and `flag` != `NO_DROP`. Target 14 at every rate. Also count how
+   for fps 4, 12 and 24. From the **Events** sheet of each `... - PWT.xlsx` (openpyxl; the header
+   row names the columns) count rows with `Type` in
+   (`kill`, `eliminated_knocked`) and `Flag` != `NO_DROP`. Target 14 at every rate. Also count how
    many of those have both killer and victim filled, and whether `KG696969` appears.
-   Run the 12 fps replay twice and diff the CSVs: they must be identical.
+   Run the 12 fps replay twice and diff the Events sheets on the columns True time (s), Type, Killer, Victim, Weapon, Flag (not the
+   whole workbook: the Scoreboard sheet carries a processing timestamp and the Evidence image column
+   carries the match id): they must be identical.
 4. If `clips/Video_Project_13.mp4` exists: `python tools/harvest_remaining_digits.py clips/Video_Project_13.mp4 tests/fixtures/remaining_vp13.csv --check-only` → WRONG must be 0.
 5. Self-kill check: no row with killer == victim and an empty flag.
 

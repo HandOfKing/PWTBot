@@ -5,12 +5,12 @@ are the CLI's (`python -m pwt replay`), in the same order:
 
   1. layout check (ARCHITECTURE stage 0) -- refuse a profile that does not fit
   2. replay through the engine, reporting progress, stoppable
-  3. write the events CSV, the Excel workbook and a log next to the recording
+  3. write ONE Excel workbook next to the recording (Scoreboard, Highlights, Events, Run log)
 
 Nothing here knows about Tk; it is tested on its own (tests/test_process.py).
 """
 from __future__ import annotations
-import csv, datetime as dt, re, sys, threading, time
+import datetime as dt, re, sys, threading, time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,9 +26,8 @@ DEFAULT_FPS = 12
 class Result:
     ok: bool                                   # a table was produced
     match_id: int | None = None
-    csv_path: Path | None = None
     xlsx_path: Path | None = None
-    log_path: Path | None = None
+    log_path: Path | None = None               # only when there is no workbook to hold the log
     summary: dict = field(default_factory=dict)
     counts: dict = field(default_factory=dict)
     layout_ok: bool = True
@@ -76,19 +75,6 @@ def default_roster(folder=None):
     return db.last_roster(folder) or bundled_roster()
 
 
-def write_events_csv(conn, match_id, out):
-    """Flat events table: one row per knock / kill, true time first."""
-    d = db.match_detail(conn, match_id)
-    cols = ["round_no", "true_time_s", "feed_time_s", "time_source", "killer", "event_type",
-            "weapon", "victim", "victim_team", "flag"]
-    with open(out, "w", newline="", encoding="utf-8-sig") as fh:     # BOM: Excel reads ツ and ³ right
-        w = csv.writer(fh)
-        w.writerow(cols)
-        for e in d["events"]:
-            w.writerow([e[c] if c in e.keys() else "" for c in cols])
-    return Path(out)
-
-
 def match_counts(conn, match_id):
     """Headline numbers for the result panel."""
     q = lambda sql: conn.execute(sql, (match_id,)).fetchone()[0]
@@ -108,18 +94,22 @@ def match_counts(conn, match_id):
     )
 
 
-def _outputs(path, out_dir):
-    """<recording> - PWT.xlsx etc., next to the recording; the data folder if that isn't writable."""
-    stem = Path(path).stem
+def _writable_dir(path, out_dir):
+    """out_dir, else the recording's folder; the data folder if neither is writable."""
     for d in ([Path(out_dir)] if out_dir else []) + [Path(path).parent, db.data_dir() / "exports"]:
         try:
             d.mkdir(parents=True, exist_ok=True)
             probe = d / ".pwt_write_test"
             probe.write_text("x"); probe.unlink()
-            return (d / f"{stem} - PWT.xlsx", d / f"{stem} - PWT events.csv", d / f"{stem} - PWT log.txt")
+            return d
         except OSError:
             continue
     raise OSError("no writable folder for the results")
+
+
+def _outputs(path, out_dir):
+    """<recording> - PWT.xlsx: the one file a run produces."""
+    return _writable_dir(path, out_dir) / f"{Path(path).stem} - PWT.xlsx"
 
 
 def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, team_size=6,
@@ -193,21 +183,18 @@ def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, t
                      "WHERE id=?", (f"stopped by the user at {last[0]:.0f} s", mid))
         conn.commit()
 
-    xlsx, csv_path, log_path = _outputs(path, out_dir)
-    export_excel.export_match(conn, mid, xlsx)
-    write_events_csv(conn, mid, csv_path)
+    xlsx = _outputs(path, out_dir)
     counts = match_counts(conn, mid)
     log(f"eliminations {counts['eliminations']}  named {counts['named']}  "
         f"no feed row {counts['no_feed_row']}  knocks {counts['knocks']}  rows to review {counts['to_review']}")
-    log_path.write_text("\n".join(lines), encoding="utf-8")
-    return Result(ok=True, match_id=mid, csv_path=csv_path, xlsx_path=xlsx, log_path=log_path,
-                  summary=summary, counts=counts, layout_ok=chk.ok, layout_report=chk.report(),
-                  cancelled=cancelled)
+    export_excel.export_match(conn, mid, xlsx, log_lines=lines)
+    return Result(ok=True, match_id=mid, xlsx_path=xlsx, summary=summary, counts=counts,
+                  layout_ok=chk.ok, layout_report=chk.report(), cancelled=cancelled)
 
 
 def _write_log(path, out_dir, lines):
     try:
-        _, _, log_path = _outputs(path, out_dir)
+        log_path = _writable_dir(path, out_dir) / f"{Path(path).stem} - PWT log.txt"
         log_path.write_text("\n".join(lines), encoding="utf-8")
         return log_path
     except OSError:

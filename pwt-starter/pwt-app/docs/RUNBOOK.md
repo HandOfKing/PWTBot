@@ -8,7 +8,8 @@ There is one version of everything: one layout (first-person spectator, 6v6, Gam
 
 Download the `PWT-windows` artifact from the latest `build-windows` run on GitHub (or the zip
 on a Release), unzip, run `PWT.exe`. Pick the recording, check the player names, press Start.
-Results land next to the recording: `<name> - PWT.xlsx`, `- PWT events.csv`, `- PWT log.txt`.
+Results land next to the recording as ONE file, `<name> - PWT.xlsx`, with four sheets: Scoreboard, Highlights
+(a role per player, from knocks only), Events and Run log. A run that finds no round writes `- PWT log.txt` instead.
 `README.txt` in the folder says the same for a non-developer.
 
 **Player names.** One per line, spelled exactly as in the game (`docs/roster.md`). Kill-feed
@@ -45,7 +46,7 @@ python -m pwt replay "D:\OBS\match.mkv"
 |---|---|---|
 | `--roster A B ...` | the last run's list, else `docs/roster.md` | the names to match against |
 | `--fps` | `12` | The table is the same at any rate, but rows on screen under ~0.25 s need 12+. On `Video_Project_9.mp4`: 4 fps names 9 of 14 eliminations, 12 and 24 fps all 14. |
-| `--out DIR` | next to the recording | where the xlsx / csv / log go |
+| `--out DIR` | next to the recording | where the xlsx goes |
 | `--replace` | off | the recording was processed before: replace that result |
 | `--force` | off | run even though the layout check failed (every row suspect) |
 | `--quiet` | off | no per-event log |
@@ -67,16 +68,29 @@ It streams the file. A 32-minute match took 20 minutes at 24 fps on Chirag's lap
 
 ## Reading the output
 
-Workbook sheets: **Summary** (per player: feed eliminations credited to the knocker, knocks,
-deaths, and the end-of-match board's eliminations and knock outs beside them, with a Check
-column), **Events**, **Rounds**, **Round scoreboards**, **Match scoreboard**.
+Workbook sheets (one file per run):
+- **Scoreboard**: the end-of-match board, every player and column, with PWT's own eliminations
+  (credited to the knocker) and knocks beside it and a Check column.
+- **Highlights**: a role per player, from knocks only (rules and thresholds in `pwt/awards.py`).
+  The sheet states "based on N of M knocks read". Everything is per match: the top 3 Dominating pairs
+  (biggest one-sided leads) and the top 3 Rival pairs (most even trades) are ranked with no minimum
+  counts; Grenadier, Molotov specialist, Driver (car knocks go to the driver), Shotgun specialist and
+  AR / SMG / LMG / Sniper player (most knocks with that class, share shown) and Clutch (one player
+  knocked down EVERY enemy still alive, at least two, while their team had the same number alive or
+  fewer: 2v2 and two knocks, 3v3 and three, 1v3 and all three; the least certain, see the note on the
+  sheet) each have one holder.
+- **Events**: every knock and kill, with the columns below.
+- **Run log**: the engine log of the run (absent when a match is exported again from the Matches tab).
 
-| Column | Meaning |
+The old Rounds, Round scoreboards and Summary sheets and the events CSV are gone (2026-10-10);
+the data is still in the database.
+
+| Events column | Meaning |
 |---|---|
-| `true_time_s` | seconds from the start of the recording |
-| `time_source` | `Remaining drop` = the true time of the death; `feed (approx)` = when the line appeared |
-| `event_type` | `knock`, `kill`, `eliminated_knocked` (died while knocked when the team was wiped) |
-| `flag` | blank = good; `UNRESOLVED` = a feed row whose name(s) did not read; `NO_FEED_ROW` = the Remaining counter dropped but no readable feed row said who; `NO_DROP` = a kill row the counter saw no death for (a repeat or a misread icon), kept but not counted |
+| `True time (s)` | seconds from the start of the recording |
+| `Time source` | `Remaining drop` = the true time of the death; `feed (approx)` = when the line appeared |
+| `Type` | `knock`, `kill`, `eliminated_knocked` (died while knocked when the team was wiped) |
+| `Flag` | blank = good; `UNRESOLVED` = a feed row whose name(s) did not read; `NO_FEED_ROW` = the Remaining counter dropped but no readable feed row said who; `NO_DROP` = a kill row the counter saw no death for (a repeat or a misread icon), kept but not counted |
 
 ## Scoreboards
 

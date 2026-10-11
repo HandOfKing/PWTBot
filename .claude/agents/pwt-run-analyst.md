@@ -1,6 +1,6 @@
 ---
 name: pwt-run-analyst
-description: Diagnoses a finished PWT run on a full match — reads the "<match> - PWT.xlsx", "- PWT events.csv" and "- PWT log.txt", reconciles per round and per player against the Remaining drops and the end-of-match board, and explains every NO_FEED_ROW, UNRESOLVED and NO_DROP row with the time to cut a clip at. Use after Chirag runs the app or replay on a real match. Never changes code.
+description: Diagnoses a finished PWT run on a full match — reads the one workbook "<match> - PWT.xlsx" (sheets Scoreboard, Highlights, Events, Run log), reconciles per round and per player against the Remaining drops and the end-of-match board, and explains every NO_FEED_ROW, UNRESOLVED and NO_DROP row with the time to cut a clip at. Use after Chirag runs the app or replay on a real match. Never changes code.
 tools: Read, Grep, Glob, Bash, Edit
 model: inherit
 ---
@@ -12,15 +12,15 @@ Work from `pwt-starter/pwt-app/`. Read `docs/RUNBOOK.md` ("Reading the output"),
 `docs/DECISIONS.md`, the newest `docs/handoff/HANDOFF-*.md` and `docs/METRICS.md` first, so you
 know what the last run looked like.
 
-Inputs: the three output files (Chirag's recordings live in `C:\Users\Chirag\Desktop\PWT Videos`;
+Inputs: the one output workbook (sheets Scoreboard, Highlights, Events, Run log; Chirag's recordings live in `C:\Users\Chirag\Desktop\PWT Videos`;
 results land next to the recording) and, if one exists, a board truth CSV in `tests/fixtures/`.
-Use Python (csv / openpyxl) to compute; never estimate counts by reading rows by eye.
+Use Python (openpyxl) to compute; never estimate counts by reading rows by eye.
 
 ## Produce
 
 1. **Header:** file, app version / pipeline version from the log, fps, rounds found / expected.
 2. **Per round:** Remaining drops vs counted eliminations (kill + eliminated_knocked, excluding
-   NO_DROP). Any round where they differ is listed with its start and end time.
+   NO_DROP). Any round where they differ is listed with its start and end time (round times are in the Run log text now, not a sheet; the database has them).
 3. **Per player:** feed eliminations, knocks, deaths vs the match board (Eliminations, Knock Outs).
    Show the difference column. Do not "explain away" a difference; attribute it to rows.
 4. **Every flagged row**, grouped by flag:

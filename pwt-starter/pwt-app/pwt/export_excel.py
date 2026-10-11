@@ -14,7 +14,7 @@ def _mmss(s):
     s = float(s); return f"{int(s // 60):02d}:{s % 60:05.2f}"
 
 
-def _table(ws, headers, rows, start_row=1, flag_col=None, widths=None):
+def _table(ws, headers, rows, start_row=1, flag_col=None, widths=None, freeze=True):
     for j, h in enumerate(headers, 1):
         c = ws.cell(row=start_row, column=j, value=h)
         c.font, c.fill, c.alignment = HEAD, HEAD_FILL, Alignment(horizontal="center", vertical="center")
@@ -26,10 +26,11 @@ def _table(ws, headers, rows, start_row=1, flag_col=None, widths=None):
                 ws.cell(row=i, column=j).fill = FLAG_FILL
     last = start_row + max(len(rows), 1)
     ws.auto_filter.ref = f"A{start_row}:{get_column_letter(len(headers))}{last}"
-    ws.freeze_panes = ws.cell(row=start_row + 1, column=1)
+    if freeze:
+        ws.freeze_panes = ws.cell(row=start_row + 1, column=1)
     for j, h in enumerate(headers, 1):
         w = (widths or {}).get(h) or max([len(str(h))] + [len(str(r[j - 1])) for r in rows if r[j - 1] is not None]) + 2
-        ws.column_dimensions[get_column_letter(j)].width = min(max(w, 8), 40)
+        ws.column_dimensions[get_column_letter(j)].width = w if (widths or {}).get(h) else min(max(w, 8), 40)
 
 
 EVENT_HEADERS = ["Date & time", "Round", "True time (s)", "True time", "Feed time (s)", "Feed delay (s)",
@@ -66,52 +67,98 @@ def _player_rows(players):
 
 STAT_LABELS = {"eliminations": "Eliminations", "assists": "Assists", "damage_dealt": "Damage dealt",
                "damage_taken": "Damage taken", "knock_outs": "Knock outs"}
+BOARD_ORDER = ("eliminations", "assists", "damage_dealt", "damage_taken", "knock_outs",
+               "col_1", "col_2", "col_3", "col_4")
+WRAP = Alignment(wrap_text=True, vertical="top")
 
 
-def export_match(conn, match_id, path):
-    from .db import match_detail
-    d = match_detail(conn, match_id)
+def _scoreboard_sheet(ws, d):
+    """The end-of-match board, every player and column, next to what PWT counted from the feed."""
     m = d["match"]
-    wb = Workbook()
-    ws = wb.active; ws.title = "Summary"
     ws["A1"] = f"Match {m['recorded_at']}"; ws["A1"].font = TITLE
-    info = [("Recorded", m["recorded_at"]), ("Room code", m["room_code"]), ("Mode", m["mode"]),
-            ("Team size", m["team_size"]), ("Rounds", m["rounds_played"]), ("Winner", m["winner_team"]),
-            ("Status", m["status"]), ("Source file", m["source_file"]), ("Processed", m["processed_at"]),
+    info = [("Source file", m["source_file"]), ("Room code", m["room_code"]), ("Team size", m["team_size"]),
+            ("Rounds", m["rounds_played"]), ("Status", m["status"]), ("Processed", m["processed_at"]),
             ("Pipeline", m["pipeline_version"])]
     for i, (k, v) in enumerate(info, 3):
         ws.cell(row=i, column=1, value=k).font = Font(bold=True)
         ws.cell(row=i, column=2, value=v).alignment = Alignment(horizontal="left")
-    _table(ws, PLAYER_HEADERS, _player_rows(d["players"]), start_row=len(info) + 5)
-    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 16)
-    ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 22)
-
-    ws = wb.create_sheet("Events")
-    _table(ws, EVENT_HEADERS, _event_rows(d["events"]), flag_col=13)
-
-    ws = wb.create_sheet("Rounds")
-    _table(ws, ["Round", "Start (s)", "End (s)", "Winner", "Result", "Blue score", "Red score"],
-           [[r["round_no"], r["start_s"], r["end_s"], r["winner_team"], r["result_text"], r["blue_score"],
-             r["red_score"]] for r in d["rounds"]])
-
-    # scoreboards pivoted: one row per player per round, one column per stat; plus the match board
-    teams = {p["ign"]: p["team"] for p in d["players"]}
-    piv, stat_names = {}, []
+    board, names = {}, []
     for st in d["stats"]:
-        piv.setdefault((st["round_no"], st["ign"]), {})[st["stat_name"]] = st["value"]
-        if st["stat_name"] not in stat_names: stat_names.append(st["stat_name"])
-    known = ("eliminations", "assists", "damage_dealt", "damage_taken", "knock_outs",
-             "col_1", "col_2", "col_3", "col_4")
-    order = [c for c in known if c in stat_names] + [c for c in stat_names if c not in known]
-    rnd = sorted(((k, v) for k, v in piv.items() if k[0] is not None), key=lambda kv: (kv[0][0], kv[0][1]))
-    label = lambda c: STAT_LABELS.get(c, c)
-    ws = wb.create_sheet("Round scoreboards")
-    _table(ws, ["Round", "Player", "Team"] + [label(c) for c in order],
-           [[k[0], k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in rnd])
-    mt = sorted(((k, v) for k, v in piv.items() if k[0] is None), key=lambda kv: kv[0][1])
-    ws = wb.create_sheet("Match scoreboard")
-    _table(ws, ["Player", "Team"] + [label(c) for c in order],
-           [[k[1], teams.get(k[1])] + [v.get(c) for c in order] for k, v in mt])
+        if st["round_no"] is None:
+            board.setdefault(st["ign"], {})[st["stat_name"]] = st["value"]
+            if st["stat_name"] not in names: names.append(st["stat_name"])
+    cols = [c for c in BOARD_ORDER if c in names] + [c for c in names if c not in BOARD_ORDER]
+    r0 = len(info) + 4
+    if not board:
+        ws.cell(row=r0 - 1, column=1, value="The end-of-match scoreboard was not read in this recording; the "
+                "board columns are empty. PWT's own counts are below.").font = Font(italic=True)
+    rows, by_ign = [], {p["ign"]: p for p in d["players"]}
+    for ign in list(by_ign) + [i for i in board if i not in by_ign]:       # every board row, even one with no team
+        p, b, diffs = by_ign.get(ign), board.get(ign, {}), []
+        if p is None:
+            check = "on the board, but not in this match's player list"
+        elif not board:
+            check = ""
+        elif not b:
+            check = "not on the board"
+        else:
+            if b.get("eliminations") is not None and int(b["eliminations"]) != p["eliminations"]:
+                diffs.append(f"elims {p['eliminations']} vs board {int(b['eliminations'])}")
+            if b.get("knock_outs") is not None and int(b["knock_outs"]) != p["knocks"]:
+                diffs.append(f"knocks {p['knocks']} vs board {int(b['knock_outs'])}")
+            unread = [STAT_LABELS.get(c, c) for c in ("eliminations", "knock_outs") if b.get(c) is None]
+            check = "; ".join(diffs) or ("OK" if not unread else "")
+            if unread and not diffs:
+                check = f"{' and '.join(unread)} unreadable on the board"
+            elif unread:
+                check += f" ({' and '.join(unread)} unreadable)"
+        rows.append([ign, p["team"] if p else None] + [b.get(c) for c in cols]
+                    + [p["eliminations"] if p else None, p["knocks"] if p else None, check])
+    _table(ws, ["Player", "Team"] + [STAT_LABELS.get(c, c) for c in cols] + ["PWT eliminations", "PWT knocks", "Check"],
+           rows, start_row=r0, freeze=False)
+    ws.column_dimensions["A"].width = max(ws.column_dimensions["A"].width or 0, 22)
+
+
+def _highlights_sheet(ws, d):
+    from . import awards
+    aw = awards.from_detail(d)
+    ws["A1"] = "Match highlights"; ws["A1"].font = TITLE
+    for i, note in enumerate(aw.notes, 2):
+        c = ws.cell(row=i, column=1, value=note)
+        c.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=4)
+        ws.row_dimensions[i].height = 15 * (1 + len(note) // 120)
+    rows = [[r.player, r.team, r.role, r.detail] for r in aw.roles]
+    have = {r.player for r in aw.roles}
+    for p in d["players"]:
+        if p["ign"] not in have:
+            n = aw.knock_counts.get(p["ign"], 0)
+            rows.append([p["ign"], p["team"], "-", f"No role: {awards._plural(n, 'knock')} counted, no pattern strong enough."])
+    rows.sort(key=lambda r: (r[1] or "", r[0].lower(), r[2] == "-"))
+    start = len(aw.notes) + 3
+    _table(ws, ["Player", "Team", "Role", "What they did"], rows, start_row=start, widths={"What they did": 100}, freeze=False)
+    for i in range(start + 1, start + 1 + len(rows)):
+        ws.cell(row=i, column=4).alignment = WRAP
+
+
+def export_match(conn, match_id, path, log_lines=None):
+    """One workbook for a match: Scoreboard, Highlights, Events and, when given, the run log."""
+    from .db import match_detail
+    d = match_detail(conn, match_id)
+    wb = Workbook()
+    _scoreboard_sheet(wb.active, d); wb.active.title = "Scoreboard"
+    ws = wb.create_sheet("Highlights")
+    try:
+        _highlights_sheet(ws, d)
+    except Exception as exc:                       # a bug in the newest feature must not cost the whole result
+        msg = f"Highlights could not be built: {type(exc).__name__}: {exc}"
+        wb.remove(ws); ws = wb.create_sheet("Highlights", 1)
+        ws["A1"] = msg
+        if log_lines is not None: log_lines.append(msg)
+    _table(wb.create_sheet("Events"), EVENT_HEADERS, _event_rows(d["events"]), flag_col=13)
+    if log_lines is not None:
+        ws = wb.create_sheet("Run log")
+        _table(ws, ["Run log"], [[l] for l in log_lines], widths={"Run log": 160})
     wb.save(path)
     return path
 
