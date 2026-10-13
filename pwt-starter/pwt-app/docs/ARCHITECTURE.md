@@ -82,7 +82,7 @@ video file
    │
    ├─ 8  PERSISTENCE        db.py:LiveMatch  (SQLite, committed as it goes)
    │
-   └─ 9  OUTPUT             one Excel workbook (Scoreboard · Highlights · Events · Run log) · (planned) review GUI
+   └─ 9  OUTPUT             one Excel workbook (Scoreboard · Highlights · Players · Head to head · Events · Run log) · (planned) review GUI
 ```
 
 ### Three independent signals
