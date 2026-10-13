@@ -123,11 +123,7 @@ def _highlights_sheet(ws, d):
     from . import awards
     aw = awards.from_detail(d)
     ws["A1"] = "Match highlights"; ws["A1"].font = TITLE
-    for i, note in enumerate(aw.notes, 2):
-        c = ws.cell(row=i, column=1, value=note)
-        c.alignment = Alignment(wrap_text=True, vertical="top")
-        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=4)
-        ws.row_dimensions[i].height = 15 * (1 + len(note) // 120)
+    start = _notes_block(ws, aw.notes)
     rows = [[r.player, r.team, r.role, r.detail] for r in aw.roles]
     have = {r.player for r in aw.roles}
     for p in d["players"]:
@@ -135,26 +131,65 @@ def _highlights_sheet(ws, d):
             n = aw.knock_counts.get(p["ign"], 0)
             rows.append([p["ign"], p["team"], "-", f"No role: {awards._plural(n, 'knock')} counted, no pattern strong enough."])
     rows.sort(key=lambda r: (r[1] or "", r[0].lower(), r[2] == "-"))
-    start = len(aw.notes) + 3
     _table(ws, ["Player", "Team", "Role", "What they did"], rows, start_row=start, widths={"What they did": 100}, freeze=False)
     for i in range(start + 1, start + 1 + len(rows)):
         ws.cell(row=i, column=4).alignment = WRAP
 
 
+def _notes_block(ws, notes, width=4):
+    for i, note in enumerate(notes, 2):
+        c = ws.cell(row=i, column=1, value=note)
+        c.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=width)
+        ws.row_dimensions[i].height = 15 * (1 + len(note) // 120)
+    return len(notes) + 3
+
+
+def _players_sheet(ws, d):
+    """Per player: knocks made and taken, and the full rankings of who they knocked / who knocked them."""
+    from . import playerstats
+    st = playerstats.from_detail(d)
+    ws["A1"] = "Players: who knocked whom (knocks only)"; ws["A1"].font = TITLE
+    start = _notes_block(ws, st.notes, width=6)
+    rows = [[l.player, l.team, l.knocks, l.times_knocked,
+             playerstats.ranking_text(l.knocked), playerstats.ranking_text(l.knocked_by)] for l in st.players]
+    _table(ws, ["Player", "Team", "Knocks", "Times knocked", "Knocked most (ranking)", "Knocked by most (ranking)"],
+           rows, start_row=start,
+           widths={"Knocked most (ranking)": 70, "Knocked by most (ranking)": 70}, freeze=False)
+    for i in range(start + 1, start + 1 + len(rows)):
+        for j in (5, 6):
+            ws.cell(row=i, column=j).alignment = WRAP
+
+
+def _head_to_head_sheet(ws, d):
+    """One row per player and opponent who knocked each other at least once: filter the Player column."""
+    from . import playerstats
+    st = playerstats.from_detail(d)
+    _table(ws, ["Player", "Opponent", "Opponent team", "Knocked them", "Knocked by them"],
+           [list(r) for r in st.pairs])
+
+
+def _safe_sheet(wb, title, index, build, d, log_lines):
+    """Build a sheet; a bug in it must not cost the whole result, so the error goes on the sheet and in the log."""
+    ws = wb.create_sheet(title, index)
+    try:
+        build(ws, d)
+    except Exception as exc:
+        msg = f"{title} could not be built: {type(exc).__name__}: {exc}"
+        wb.remove(ws); ws = wb.create_sheet(title, index)
+        ws["A1"] = msg
+        if log_lines is not None: log_lines.append(msg)
+
+
 def export_match(conn, match_id, path, log_lines=None):
-    """One workbook for a match: Scoreboard, Highlights, Events and, when given, the run log."""
+    """One workbook for a match: Scoreboard, Highlights, Players, Head to head, Events and, when given, the run log."""
     from .db import match_detail
     d = match_detail(conn, match_id)
     wb = Workbook()
     _scoreboard_sheet(wb.active, d); wb.active.title = "Scoreboard"
-    ws = wb.create_sheet("Highlights")
-    try:
-        _highlights_sheet(ws, d)
-    except Exception as exc:                       # a bug in the newest feature must not cost the whole result
-        msg = f"Highlights could not be built: {type(exc).__name__}: {exc}"
-        wb.remove(ws); ws = wb.create_sheet("Highlights", 1)
-        ws["A1"] = msg
-        if log_lines is not None: log_lines.append(msg)
+    _safe_sheet(wb, "Highlights", 1, _highlights_sheet, d, log_lines)
+    _safe_sheet(wb, "Players", 2, _players_sheet, d, log_lines)
+    _safe_sheet(wb, "Head to head", 3, _head_to_head_sheet, d, log_lines)
     _table(wb.create_sheet("Events"), EVENT_HEADERS, _event_rows(d["events"]), flag_col=13)
     if log_lines is not None:
         ws = wb.create_sheet("Run log")

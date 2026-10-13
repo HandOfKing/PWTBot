@@ -108,6 +108,14 @@ Definition of done on the final tree (pwt-verifier, scratch data folder):
 | 10-11 | Unflagged self-kills (VP9, 4 / 12 / 24) | 0 | 0 / 0 / 0 | |
 | 10-11 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | same as 10-10 |
 | 10-11 | `app/main.py --selftest` | PASS | PASS (8 checks ok) | headless, PWT 0.2.0 |
+| 10-13 | `tests/run_all.py` (Players + Head to head sheets, playerstats.py, tree dirty on 9705da5, 12 files) | all pass | 60 ok, 0 skipped, 0 FAIL | 4 new test_playerstats tests + test_db_export knock-outcomes test (was 56); scratch PWT_DATA_DIR; 19-name roster |
+| 10-13 | VP9 eliminations, fps 4 / 12 / 24 (Events sheet of `- PWT.xlsx`, Type kill+eliminated_knocked, Flag != NO_DROP) | 14 / 14 / 14 | 14 / 14 / 14 | 12 fps run twice: True time (s), Type, Killer, Victim, Weapon, Flag identical over 30 rows; same as 10-11; roster = all 19 names of docs/roster.md |
+| 10-13 | VP9 eliminations with both names, fps 4 / 12 / 24 | — | 13 / 13 / 13 of 14 | feed rows with both names: 28/29, 28/30, 31/34; KG696969 in 3 / 3 / 4 elimination rows (8 / 8 / 10 rows of any type); same as 10-11 |
+| 10-13 | VP13 Remaining digits (`--check-only`) | 0 WRONG | 0 WRONG; 3976 correct, 2 blank of 3978 | same as 10-11 |
+| 10-13 | Unflagged self-kills (VP9, 4 / 12 / 24) | 0 | 0 / 0 / 0 | |
+| 10-13 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | same as 10-11 |
+| 10-13 | VP9 workbook sheet order (fps 4 / 12 / 24 / 12 repeat) | Scoreboard, Highlights, Players, Head to head, Events, Run log | exactly that, in all four workbooks | 12 fps: Players sheet 17 rows x 6 cols, Head to head 23 rows x 5 cols |
+| 10-13 | `app/main.py --selftest` | PASS | PASS (8 checks ok) | headless, PWT 0.2.0; scratch PWT_DATA_DIR and output file |
 
 Four full matches at 12 fps with the final code (`Output/final3`). Counted eliminations = Remaining drops in
 every round of every match; no phantom rounds; no unflagged self-kills. "Credited" = to a player by the knocker

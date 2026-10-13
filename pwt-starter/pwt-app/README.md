@@ -5,7 +5,7 @@ round-based, GameLoop 1920x1080) and produces:
 - every knock and elimination, with **true times**, killer, victim and round
 - the **end-of-match scoreboard** for every player (eliminations, assists, damage dealt and
   taken, knock outs)
-- one Excel workbook per match (Scoreboard, Highlights, Events, Run log); every match is kept in SQLite
+- one Excel workbook per match (Scoreboard, Highlights, Players, Head to head, Events, Run log); every match is kept in SQLite
 
 One version: one layout, one pipeline (`pwt/process.py`) behind both the desktop app and the
 command line, one branch (`main`). Rules for Claude Code: [`CLAUDE.md`](CLAUDE.md).

@@ -392,6 +392,7 @@ def match_detail(conn, match_id):
         "events": conn.execute("SELECT * FROM v_events WHERE match_id=? ORDER BY true_time_s, feed_time_s",
                                (match_id,)).fetchall(),
         "rounds": conn.execute("SELECT * FROM rounds WHERE match_id=? ORDER BY round_no", (match_id,)).fetchall(),
+        "outcomes": conn.execute("SELECT knock_id, outcome FROM v_knock_outcomes WHERE match_id=?", (match_id,)).fetchall(),
         "stats": conn.execute(
             """SELECT r.round_no, p.ign, s.stat_name, s.value, s.confidence
                FROM scoreboard_stats s JOIN players p ON p.id = s.player_id

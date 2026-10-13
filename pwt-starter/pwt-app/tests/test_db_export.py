@@ -67,7 +67,7 @@ def test_excel_exports():
     conn, d = _fresh()
     mid = _sample(conn)
     wb = load_workbook(export_excel.export_match(conn, mid, d / "m.xlsx"))
-    assert wb.sheetnames == ["Scoreboard", "Highlights", "Events"]
+    assert wb.sheetnames == ["Scoreboard", "Highlights", "Players", "Head to head", "Events"]
     assert wb["Events"].max_row == 4
     wb = load_workbook(export_excel.export_range(conn, d / "r.xlsx", "2026-10-01", "2026-10-31"))
     assert wb.sheetnames == ["Matches", "Player totals", "Player per match", "All events"]

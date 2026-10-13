@@ -8,8 +8,8 @@ There is one version of everything: one layout (first-person spectator, 6v6, Gam
 
 Download the `PWT-windows` artifact from the latest `build-windows` run on GitHub (or the zip
 on a Release), unzip, run `PWT.exe`. Pick the recording, check the player names, press Start.
-Results land next to the recording as ONE file, `<name> - PWT.xlsx`, with four sheets: Scoreboard, Highlights
-(a role per player, from knocks only), Events and Run log. A run that finds no round writes `- PWT log.txt` instead.
+Results land next to the recording as ONE file, `<name> - PWT.xlsx`, with sheets Scoreboard, Highlights
+(a role per player, from knocks only), Players, Head to head, Events and Run log. A run that finds no round writes `- PWT log.txt` instead.
 `README.txt` in the folder says the same for a non-developer.
 
 **Player names.** One per line, spelled exactly as in the game (`docs/roster.md`). Kill-feed
@@ -68,7 +68,7 @@ It streams the file. A 32-minute match took 20 minutes at 24 fps on Chirag's lap
 
 ## Reading the output
 
-Workbook sheets (one file per run):
+Workbook sheets (one file per run; six with the run log, five when a match is exported again):
 - **Scoreboard**: the end-of-match board, every player and column, with PWT's own eliminations
   (credited to the knocker) and knocks beside it and a Check column.
 - **Highlights**: a role per player, from knocks only (rules and thresholds in `pwt/awards.py`).
@@ -79,6 +79,10 @@ Workbook sheets (one file per run):
   knocked down EVERY enemy still alive, at least two, while their team had the same number alive or
   fewer: 2v2 and two knocks, 3v3 and three, 1v3 and all three; the least certain, see the note on the
   sheet) each have one holder.
+- **Players**: per player (knocks only, no kills): knocks, times knocked, and two full rankings: who they
+  knocked most and who knocked them most. (Revives are computed in `pwt/playerstats.py` but not shown yet.)
+- **Head to head**: one row per player and opponent who knocked each other (Knocked them / Knocked by them); filter the
+  Player column for one person. Built for feeding a per-player website.
 - **Events**: every knock and kill, with the columns below.
 - **Run log**: the engine log of the run (absent when a match is exported again from the Matches tab).
 

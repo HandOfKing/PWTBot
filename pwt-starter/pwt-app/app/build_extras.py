@@ -43,10 +43,13 @@ When recording
   Dealt, Damage Taken and Knock Outs for every row it sees.
 
 Results
-  Next to the recording:  <recording> - PWT.xlsx   one Excel file with four sheets:
+  Next to the recording:  <recording> - PWT.xlsx   one Excel file with six sheets:
                             Scoreboard   the end-of-match board with PWT's own counts beside it
                             Highlights   a role for each player (rivals, dominating pairs, Grenadier,
                                          weapon roles, Driver, Clutch), from knocks only
+                            Players      per player: knocks, times knocked, who they knocked most
+                                         and who knocked them most
+                            Head to head one row per pair of players who knocked each other
                             Events       every knock and kill: who, what, when
                             Run log      what happened, for checking
   Every match is also kept in the app (Matches tab), where you can export one

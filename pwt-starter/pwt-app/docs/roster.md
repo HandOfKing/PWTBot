@@ -1,6 +1,6 @@
 # PWT roster — exact in-game spellings
 
-Taken from the in-game player list, 2026-10-05. **Spelling matters.** Name
+Taken from the in-game player list, 2026-10-05; `AnanyaPawar` added 2026-10-13 (19 names). **Spelling matters.** Name
 resolution works by fuzzy-matching garbled OCR to this list, so a wrong entry
 either fails to match or, worse, looks like a second player and makes the
 matcher refuse both. Copy these exactly.
@@ -25,6 +25,7 @@ matcher refuse both. Copy these exactly.
 | 16 | `TrishaSingh` | |
 | 17 | `BruceWayne³` | superscript `³`; stripped before matching, compares as `BruceWayne` |
 | 18 | `WonderWoman888` | full `Woman` |
+| 19 | `AnanyaPawar` | added 2026-10-13 from Chirag's updated player list |
 
 ## Write the names in plain English
 The list above is the **reference spelling**, not necessarily the exact in-game
@@ -48,10 +49,10 @@ try to reproduce the decoration — a roster entry made entirely of stylised
 letters would be stripped to nothing and match no one.
 
 ## Verified safe
-`names.check_roster_collisions` passes: all 18 fold to distinct strings. The
+`names.check_roster_collisions` passes: all 19 fold to distinct strings. The
 closest pair is `PARABloodthirs` vs `StarJohnnysins` at 0.57, well under the
 0.85 where a swap becomes possible. Measured on 205 real OCR strings from
-`Video_Project_9.mp4`, the full 18-name roster resolves the same number of rows
+`Video_Project_9.mp4`, the full 18-name roster (before `AnanyaPawar`) resolves the same number of rows
 as a 12-name one — **adding players costs nothing as long as the spellings are right.**
 
 What *does* break it is two entries for the same person (`WonderWoma888` and
@@ -62,7 +63,7 @@ keeps the old spelling as an **alias** rather than a second player.
 
 ## Load it once
 ```
-python -m pwt players --add Sarthakkkd RGODxEMPEROR KG696969 KhajwaKILL3R PARABloodthirs OmkarKurhade TheWolverine Strike333 DeathwishツSpy Makjets69 StarJohnnysins Vatsal099999 InnocentDevil enriquelatin Anoydyne15op TrishaSingh BruceWayne³ WonderWoman888
+python -m pwt players --add Sarthakkkd RGODxEMPEROR KG696969 KhajwaKILL3R PARABloodthirs OmkarKurhade TheWolverine Strike333 DeathwishツSpy Makjets69 StarJohnnysins Vatsal099999 InnocentDevil enriquelatin Anoydyne15op TrishaSingh BruceWayne³ WonderWoman888 AnanyaPawar
 ```
 After that, `pwt replay` matches against the saved roster and `--roster` is optional.
 A match only ever contains ~12 of these; the extra names are harmless.

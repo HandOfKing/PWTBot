@@ -188,7 +188,7 @@ def test_one_workbook_with_four_sheets():
     conn = db.connect(d / "pwt.db")
     mid = _match(conn)
     wb = load_workbook(export_excel.export_match(conn, mid, d / "m.xlsx", log_lines=["line one", "line two"]))
-    assert wb.sheetnames == ["Scoreboard", "Highlights", "Events", "Run log"]
+    assert wb.sheetnames == ["Scoreboard", "Highlights", "Players", "Head to head", "Events", "Run log"]
     assert [c.value for c in wb["Run log"]["A"]][:3] == ["Run log", "line one", "line two"]
     hl = [[c.value for c in row] for row in wb["Highlights"].iter_rows()]
     text = " ".join(str(v) for row in hl for v in row if v)
@@ -199,7 +199,7 @@ def test_one_workbook_with_four_sheets():
     assert head[:2] == ["Player", "Team"] and "Knock outs" in head and head[-3:] == ["PWT eliminations", "PWT knocks", "Check"]
     assert wb["Events"].max_row == 7
     no_log = load_workbook(export_excel.export_match(conn, mid, d / "n.xlsx"))
-    assert no_log.sheetnames == ["Scoreboard", "Highlights", "Events"]
+    assert no_log.sheetnames == ["Scoreboard", "Highlights", "Players", "Head to head", "Events"]
 
 
 def test_basis_when_the_board_was_only_partly_read():
@@ -236,6 +236,6 @@ def test_a_failing_highlights_sheet_does_not_lose_the_workbook():
         wb = load_workbook(export_excel.export_match(conn, mid, d / "f.xlsx", log_lines=log))
     finally:
         awards.from_detail = real
-    assert wb.sheetnames == ["Scoreboard", "Highlights", "Events", "Run log"]
+    assert wb.sheetnames == ["Scoreboard", "Highlights", "Players", "Head to head", "Events", "Run log"]
     assert "could not be built" in wb["Highlights"]["A1"].value and "ZeroDivisionError" in log[-1]
     assert wb["Events"].max_row == 7
