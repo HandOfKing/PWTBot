@@ -47,14 +47,19 @@ Each stage has one job and a defined output. Stages do not reach around each oth
 ```
 video file
    │
-   ├─ 0  PROFILE GUARD      readers/hud.py
-   │     Sample ~30 frames. Confirm the profile's HUD landmarks are where it
-   │     claims. REFUSE TO RUN otherwise. Without this, a mismatched profile
-   │     runs to completion and emits plausible, wrong data.
+   ├─ 0  PROFILE GUARD      capture/placement.py, readers/hud.py
+   │     First find where the game picture sits in the frame. A picture of the
+   │     profile's size at another place is shifted back by whole pixels, never
+   │     rescaled; a resized, cut-off or moving picture is refused (D16).
+   │     Then sample ~40 of the frames the readers will see and confirm the
+   │     profile's HUD landmarks are where it claims. REFUSE TO RUN otherwise.
+   │     Without this, a mismatched profile runs to completion and emits
+   │     plausible, wrong data.
    │
    ├─ 1  DECODE             capture/sources.py:FileReplaySource
    │     → (t, BGR frame) at --fps (default 12). Streams; never loads the whole video.
-   │     t = sample index / fps. This is the master clock.
+   │     t = sample index / fps. This is the master clock. Each frame carries
+   │     stage 0's whole-pixel shift (none for a reference recording).
    │
    ├─ 2  SCREEN STATE       readers/screens.py:ScreenReader
    │     → live | dimmed | scoreboard | other
@@ -122,7 +127,11 @@ These are not preferences. Breaking any one has already cost real accuracy.
    library covering some characters is worse than none.
 5. **Coordinates live in profile JSON, never in code.** One profile per footage
    geometry. No single parameter set serves two different recordings — do not
-   search for one.
+   search for one. Geometry means the game picture's size and HUD: the same
+   picture shifted by whole pixels in the frame is the same geometry, and its
+   position is found for each recording (`capture/placement.py`, D16). A resized
+   picture, another resolution or another HUD is a different geometry: it needs
+   its own measured profile, never a rescale onto this one (R16).
 6. **The sampled frame index is the master clock** (t = index / fps). The
    in-game timer is a cross-check. The table must not depend on the sampling
    rate: anything timed in frames instead of video seconds breaks this. Feed time is not event time; it lags up to 3.5 s and can arrive
@@ -139,7 +148,7 @@ These are not preferences. Breaking any one has already cost real accuracy.
 
 | Stage | Produces | Guarantee |
 |---|---|---|
-| Decode | `(t, frame)` | `t` is exact; frames never dropped on replay |
+| Decode | `(t, frame)` | `t` is exact; frames never dropped on replay; a frame is shifted by whole pixels onto the profile's placement when stage 0 found one, never rescaled |
 | Feed | `Row` | has `row_mask`, `icons`, `icon_scores`; icons may be empty |
 | Line tracking | `Line` | ≥1 OCR reading; `vote()` returns modal `(killer, victim, type)` |
 | Names | `(name, score)` | `None` unless score ≥ threshold **and** margin over runner-up |

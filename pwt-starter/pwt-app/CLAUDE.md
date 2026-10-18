@@ -68,7 +68,7 @@ frame rate barely matters.
 `pwt/profiles/gameloop-spectator-6v6-1080p.json` (`profiles.DEFAULT`): first-person spectator,
 6v6, GameLoop 1920x1080. A recording whose 1728x972 game picture sits elsewhere in the frame (OBS
 captured the game alone, top-left) is shifted back by whole pixels before anything reads it
-(`capture/placement.py`, DECISIONS M15); a picture of another size, cut off by the frame, or found
+(`capture/placement.py`, DECISIONS D16, M15); a picture of another size, cut off by the frame, or found
 at two places (>= 3 of 12 samples each) is refused, never rescaled (R16). Tools that read raw frames use
 `placement.transform_for`.
 The banner counts as up when >= 25% of each score box is team-coloured
