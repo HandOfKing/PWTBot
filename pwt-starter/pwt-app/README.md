@@ -1,7 +1,7 @@
 # PWT: match stats from PUBG Mobile WoW recordings
 
-PWT reads OBS recordings of World of Wonder custom rooms (first-person spectator, 6v6,
-round-based, GameLoop 1920x1080) and produces:
+PWT reads OBS recordings of World of Wonder custom rooms (first-person spectator, up to 8
+players a side, round-based, GameLoop 1920x1080) and produces:
 - every knock and elimination, with **true times**, killer, victim and round
 - the **end-of-match scoreboard** for every player (eliminations, assists, damage dealt and
   taken, knock outs)

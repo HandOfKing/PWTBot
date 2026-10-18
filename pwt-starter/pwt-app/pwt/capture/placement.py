@@ -138,7 +138,22 @@ def find(profile, path, samples=12) -> Placement:
     finally:
         cap.release()
 
+    x0, y0, x1, y1 = profile["game_area"]
+    gw, gh = x1 - x0, y1 - y0
     if not found:
+        # A picture of another size hides the label from a scale-1 template (2026-10-17 23-59-38: the
+        # game fills the 1920x1080 frame, HUD x1.11). The guard's banner and helmet boxes can still hit,
+        # so say what is wrong instead of leaving it to the landmark rates.
+        rect = picture_rect(s1, s2, n, cfg["rect_std_min"], cfg["rect_min_px"])
+        # Only a picture BIGGER than game_area: a board-only clip (the scrolling table moves, the label is
+        # hidden) measures smaller and is fine; a smaller resized picture is left to the layout check, where
+        # Remaining is critical (hud.CRITICAL). No smaller picture has been measured yet.
+        if rect is not None and ((rect[2] - rect[0]) - gw > cfg["rect_tol_px"] or (rect[3] - rect[1]) - gh > cfg["rect_tol_px"]):
+            return Placement(frames=n, problem=(
+                f"the game picture measures {rect[2] - rect[0]}x{rect[3] - rect[1]} at x={rect[0]}, y={rect[1]}, "
+                f"not {gw}x{gh}: it was resized (GameLoop full screen, or the OBS source scaled), so the HUD "
+                f"is not where the layout reads it. Run GameLoop in a window and keep the OBS source at its "
+                f"native size (right-click it, Transform, Reset Transform)"))
         return Placement(frames=n, note=f"the 'Remaining' label was not found on any of {n} sampled "
                                         f"frames, so the recording is read where it is")
     ranked = Counter(found).most_common()
@@ -157,8 +172,6 @@ def find(profile, path, samples=12) -> Placement:
     if not (dx or dy):
         return Placement(frames=n, agree=k)
 
-    x0, y0, x1, y1 = profile["game_area"]
-    gw, gh = x1 - x0, y1 - y0
     pw, ph = (profile.get("resolution") or size)
     want = (x0 - dx, y0 - dy, x1 - dx, y1 - dy)
     where = f"the HUD is {-dx:+d},{-dy:+d} px from the layout's place on {k} of {n} sampled frames"

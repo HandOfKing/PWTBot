@@ -74,6 +74,23 @@ class CounterReader:
             return {}
         return {team: [self.helmet_state(im, x, y) for x, y in pts] for team, pts in pos.items()}
 
+    def side_counts(self, im):
+        """{side: players on that side} on a frame where everyone is ALIVE (a round's start): the measured
+        count whose slots are exactly the white helmets. None for a side whose white helmets match no measured
+        layout. Only valid while nobody is dead: an empty slot and a gray (eliminated) helmet both read
+        "dead" (the panel behind is 50-150), so a side of 8 with one player out looks like a side of 7."""
+        out = {}
+        for side in ("blue", "red"):
+            layouts = {n: {tuple(p) for p in self.p.helmet_slots(side, n)} for n in self.p.helmet_counts(side)}
+            alive = {p for p in set().union(*layouts.values()) if self.helmet_state(im, *p) == "alive"}
+            out[side] = next((n for n, slots in layouts.items() if slots == alive), None)
+        return out
+
+    def helmets_by_side(self, im, sizes):
+        """Per-slot helmet state for each side, at that side's own count ({side: n})."""
+        return {side: [self.helmet_state(im, x, y) for x, y in self.p.helmet_slots(side, n)]
+                for side, n in sizes.items()}
+
     def scores(self, im):
         out = {}
         for team, key in (("blue", "blue_score_box"), ("red", "red_score_box")):

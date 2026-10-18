@@ -57,6 +57,14 @@ THRESHOLDS = {
 # inside a scoreboard screen shows no banner, for instance).
 MAX_FAILURES = 1
 
+# Landmarks that are never the tolerated one. The Remaining counter decides every
+# elimination count (DECISIONS M7): without it each kill row is NO_DROP and the
+# workbook has no eliminations. 2026-10-17 23-59-38 and 2026-10-18 00-50-39 (game
+# picture filling the frame, HUD x1.11) passed with Remaining at 0% because banner
+# and helmets still hit their boxes. A clip that hides it legitimately (inside a
+# scoreboard) also hides the banner, so it was refused anyway.
+CRITICAL = ("remaining",)
+
 
 class HudCheck:
     def __init__(self, ok, checks, notes, frame_size, profile_size, blockers=()):
@@ -216,10 +224,12 @@ def check(profile, path, samples=40, team_size=6, roster=(), transform=None):
         pass
 
     n_fail = sum(1 for c in checks.values() if not c["ok"])
-    ok = (n_fail <= MAX_FAILURES) and not blockers
+    critical = [k for k in CRITICAL if k in checks and not checks[k]["ok"]]
+    ok = (n_fail <= MAX_FAILURES) and not critical and not blockers
     if n_fail:
         notes.append(f"{n_fail} landmark(s) below threshold"
-                     + ("; one is tolerated" if n_fail <= MAX_FAILURES else ""))
+                     + (f"; {', '.join(critical)} is never tolerated: it decides every elimination count"
+                        if critical else "; one is tolerated" if n_fail <= MAX_FAILURES else ""))
     return HudCheck(ok, checks, notes, (w, h), (pw, ph), blockers)
 
 

@@ -1,7 +1,7 @@
 # PWT runbook — how to run it
 
-There is one version of everything: one layout (first-person spectator, 6v6, GameLoop
-1920x1080), one pipeline (`pwt/process.py`), one branch (`main`). The desktop app and
+There is one version of everything: one layout (first-person spectator, up to 8 players a
+side and uneven teams too (D17), GameLoop 1920x1080), one pipeline (`pwt/process.py`), one branch (`main`). The desktop app and
 `python -m pwt replay` run the same code and write the same files.
 
 ## The desktop app (Windows) — for anyone

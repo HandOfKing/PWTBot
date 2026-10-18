@@ -26,10 +26,11 @@ Use it
      The first time, Windows may say "Windows protected your PC" because the app
      is not code-signed. Click "More info", then "Run anyway".
   3. Browse... and pick the recording (.mkv or .mp4).
-     It must be a first-person spectator recording of a 6v6 round-based room,
+     It must be a first-person spectator recording of a round-based room (up to
+     8 players a side, uneven teams too),
      GameLoop at 1920x1080. Other layouts are refused rather than guessed at.
   4. Check the "Player names" box: one name per line, spelled exactly as in the
-     game, all 12 players of the match. Kill-feed names are matched against this
+     game, every player of the match. Kill-feed names are matched against this
      list only, so a missing player goes unnamed. The box remembers the list from
      your last run. After a run, the result panel names anyone the final
      scoreboard showed who is not in the list: add them and run again.

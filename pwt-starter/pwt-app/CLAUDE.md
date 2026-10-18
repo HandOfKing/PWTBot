@@ -29,7 +29,8 @@ importer and their tests were deleted. Do not reintroduce parallel paths; a seco
 Chirag's say-so and its own measured profile.
 
 ## Target footage
-First-person **spectator**, round-based WoW room, 6v6, recorded with OBS from GameLoop.
+First-person **spectator**, round-based WoW room, up to 8 players a side and uneven teams too (D17),
+recorded with OBS from GameLoop.
 The kill feed **cannot be enlarged** — that option only exists for a player in the match, not a
 spectator. Plan for ~16px text at 1080p. Recording at 1440p or 2160p is the single biggest
 lever on OCR accuracy. Replay samples at 12 fps by default (`--fps`); the recording's own
@@ -66,11 +67,14 @@ frame rate barely matters.
 
 ## The layout
 `pwt/profiles/gameloop-spectator-6v6-1080p.json` (`profiles.DEFAULT`): first-person spectator,
-6v6, GameLoop 1920x1080. A recording whose 1728x972 game picture sits elsewhere in the frame (OBS
+GameLoop 1920x1080 (the file name is historical: rooms of up to 8 a side read with it, D17). A recording whose 1728x972 game picture sits elsewhere in the frame (OBS
 captured the game alone, top-left) is shifted back by whole pixels before anything reads it
 (`capture/placement.py`, DECISIONS D16, M15); a picture of another size, cut off by the frame, or found
 at two places (>= 3 of 12 samples each) is refused, never rescaled (R16). Tools that read raw frames use
 `placement.transform_for`.
+Helmets are read per side at that side's own count (up to 8 a side, uneven too: D17, M17). A round in
+which either side has a size never measured (now: blue 1, 3, 4; red 3, 4, 5) reads no helmets on BOTH sides,
+so its deaths get no helmet team. Remaining is never the layout check's tolerated failure (M16).
 The banner counts as up when >= 25% of each score box is team-coloured
 (a two-digit score covers sample pixels; that lost rounds 16-25 of a match). A round also starts
 on a Remaining reset after a board, and a round board for an unseen round creates that round.

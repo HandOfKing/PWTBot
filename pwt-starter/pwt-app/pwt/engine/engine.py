@@ -29,6 +29,8 @@ LATE_ELIM_S = 15.0       # ... and so is a kill row this soon, while its round h
 LATE_LAG_S = 25.0        # the oldest death a late row (or the end-of-recording pass) may claim
 BACKLOG_S = 3.5         # the feed trails a death by up to this long; an older free death is not this row's (_align)
 TIMELY_S = 1.5           # a row this soon after a free death is that death's row (_align)
+HELMET_LEAD_S = 0.5      # a helmet may turn gray up to this long before its Remaining drop (one frame at 24 fps seen)
+HELMET_LAG_S = 1.5       # ... or this long after it: 0.17-1.04 s on Video_Project_9 at 24 fps (was 1.0, which lost a wipe's 3rd helmet)
 BOARD_REAPPEAR_S = 2.0   # a board detected again this soon after one closed is its fade-out or a flicker. 2026-10-04
                          # 20-27-36: round 8's board closed at 858.08 s and the detector fired again for 0.1 s at
                          # 858.25 s; 2026-10-03 00-55-11: a board dipped for 0.5 s at 1002.5 s. Each created a phantom
@@ -101,6 +103,7 @@ class Engine:
         self.players_in_room, self.team_size = None, team_size       # until Remaining says otherwise
         self.rem = dict(value=None, cand=None, n=0, left_t=None, first=[], max=0)
         self.drops, self.helm_deaths, self.helm = [], [], {}
+        self.sides, self.sides_seen = None, None   # this round's players per side, off the banner (D17)
         self.max_align_lag_s = profile.get("max_align_lag_s", 8.0)
         self.round_info = {}
         self.banner_absent_since = None
@@ -177,7 +180,7 @@ class Engine:
             self.team_size = max(2, self.players_in_room // 2)
         self.round_info = dict(start=t, score0=self.counters.scores(frame) if frame is not None else {},
                                winner=None, end=None, score=None, banner_seen=False)
-        self.helm = {}
+        self.helm, self.sides, self.sides_seen = {}, None, None
         self.state = "ROUND_LIVE"
         self.log(f"{t:7.2f}s  round {self.round_no} live (players {self.players_in_room})"
                  + (f"  [{how}]" if how else ""))
@@ -194,8 +197,10 @@ class Engine:
         if not self.round_info.get("banner_seen"):
             self.round_info["banner_seen"] = True
             if not self.round_info.get("score0"): self.round_info["score0"] = self.counters.scores(frame)
-        # helmets: a slot is dead after 2 consecutive gray reads
-        for team, slots in self.counters.helmets(frame, self.team_size).items():
+        # helmets: each side's count first (D17), then a slot is dead after 2 consecutive gray reads
+        if self.sides is None:
+            self._read_sides(t, frame)
+        for team, slots in (self.counters.helmets_by_side(frame, self.sides) if self.sides else {}).items():
             for k, s in enumerate(slots):
                 key = self.helm.setdefault((team, k), dict(state=None, pend=None))
                 if s == "alive":
@@ -214,6 +219,21 @@ class Engine:
                     self.round_info.update(winner=team, end=t, score=sc)
                     self.log(f"{t:7.2f}s  round {self.round_no} won by {team} ({sc['blue']}-{sc['red']})")
 
+    def _read_sides(self, t, frame):
+        """This round's players per side, off the banner (D17), read while everyone is alive: both sides'
+        white helmets match a measured layout exactly, they add up to the Remaining counter, and no death has
+        been counted in this round yet. (An empty slot reads like a gray helmet, so after a death a side of 8
+        could pass for 7.) Until then no helmet is read, so a death gets no team rather than a guessed one.
+        If either side has a size never measured, no helmet is read on either side this round."""
+        c = self.counters.side_counts(frame)
+        self.sides_seen = c
+        if None in c.values() or self.rem["value"] is None or sum(c.values()) != self.rem["value"]:
+            return
+        if any(d["round"] == self.round_no for d in self.drops):
+            return
+        self.sides = c
+        self.log(f"{t:7.2f}s  round {self.round_no}: blue {c['blue']} v red {c['red']} on the helmets")
+
     def _banner_missing(self, t):
         if not self.round_info.get("banner_seen"):
             return                  # round started by the Remaining reset: its board will end it
@@ -231,6 +251,11 @@ class Engine:
         sc = ri.get("score") or {}
         self.lm.end_round(self.round_no, end_s=round(end, 3), winner_team=ri.get("winner"),
                           blue_score=sc.get("blue"), red_score=sc.get("red"))
+        if self.sides is None and self.round_no:
+            seen = self.sides_seen or {}
+            self.log(f"{end:7.2f}s  round {self.round_no}: helmets not read (layout seen: blue "
+                     f"{seen.get('blue') or '?'}, red {seen.get('red') or '?'}; measured counts: blue "
+                     f"{self.p.helmet_counts('blue')}, red {self.p.helmet_counts('red')}); its deaths have no team")
         self.state = "ROUND_END"
 
     # ------------------------------------------------------------------ counters
@@ -249,8 +274,7 @@ class Engine:
             if v < r["value"]:
                 self._round_due(r["left_t"])
                 for _ in range(r["value"] - v):
-                    self.drops.append(dict(t=r["left_t"], team=None, used=False,
-                                           round=self.round_no))
+                    self._add_drop(r["left_t"])
                 self.log(f"{r['left_t']:7.2f}s  Remaining {r['value']} -> {v}")
             elif v >= r["max"] and self.round_closed and self.state != "ROUND_LIVE":
                 # Back to a full room after a board: the next round is starting (pre-round countdown).
@@ -272,15 +296,31 @@ class Engine:
         if t >= self.reset_at + (LATE_ROW_S if feed else 0.0):
             self._start_round(self.reset_at, how="Remaining reset")
 
+    @staticmethod
+    def _pairs(h_t, d_t):
+        """A gray helmet at h_t is the death at d_t on the Remaining counter: it greys up to HELMET_LAG_S after
+        the counter drops, or up to HELMET_LEAD_S before. Whichever of the two is confirmed first, the other
+        finds it (each needs two readings, so which comes first depends on the sampling rate)."""
+        return -HELMET_LEAD_S <= h_t - d_t <= HELMET_LAG_S
+
     def _helmet_death(self, t, team, slot):
-        self.helm_deaths.append(dict(t=t, team=team, slot=slot + 1))
-        for d in self.drops:                                    # team of the matching Remaining drop
-            if d["team"] is None and 0 <= t - d["t"] <= 1.0:
-                d["team"] = team
-                for ev in self.events:                          # an already-aligned event learns its team
-                    if ev.get("drop") is d and ev["victim"] and ev["victim"] not in self.team_of:
-                        self.team_of[ev["victim"]] = team
-                break
+        h = dict(t=t, team=team, slot=slot + 1, used=False)
+        self.helm_deaths.append(h)
+        d = next((d for d in self.drops if d["team"] is None and self._pairs(t, d["t"])), None)
+        if d: self._drop_team(d, h)
+
+    def _add_drop(self, t):
+        """One death on the Remaining counter; a gray helmet already confirmed for it gives its team."""
+        d = dict(t=t, team=None, used=False, round=self.round_no)
+        self.drops.append(d)
+        h = next((h for h in self.helm_deaths if not h["used"] and self._pairs(h["t"], t)), None)
+        if h: self._drop_team(d, h)
+
+    def _drop_team(self, d, h):
+        d["team"], h["used"] = h["team"], True
+        for ev in self.events:                                  # an already-aligned event learns its team
+            if ev.get("drop") is d and ev["victim"] and ev["victim"] not in self.team_of:
+                self.team_of[ev["victim"]] = h["team"]
 
     # ------------------------------------------------------------------ kill feed
     def _feed(self, t, frame, fallback=True, dim=False):
@@ -440,8 +480,8 @@ class Engine:
           older than the feed line is not that line's drop. Beyond the limit we
           keep the feed time and flag it, rather than assert a wrong one.
 
-        Team filtering (via helmets) would catch most of this on its own, but
-        helmets are not measured for 6v6 yet, so these guards carry the load.
+        Team filtering (via helmets, D17) catches some of this on its own, but only for
+        deaths whose helmet greyed in time, so these guards carry the load.
         """
         team = self.team_of.get(rec["victim"]) if rec["victim"] else None
         ok = []

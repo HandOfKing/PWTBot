@@ -28,6 +28,19 @@ class Profile(dict):
             )
         return pos
 
+    def helmet_slots(self, side, n):
+        """Helmet centres of one side ('blue' / 'red') when it has n players. A side's rows depend on
+        its own count only, so a room of 8v7 reads blue from the 8 layout and red from the 7 (D17)."""
+        pos = self["banner"]["helmets"].get(str(n), {}).get(side)
+        if pos is None:
+            raise KeyError(f"Profile {self.get('name', '?')!r} has no helmet positions for {side} with {n} "
+                           f"players (measured: {', '.join(map(str, self.helmet_counts(side))) or 'none'}).")
+        return pos
+
+    def helmet_counts(self, side):
+        """The player counts with measured helmet positions for this side, largest first."""
+        return sorted((int(n) for n, sides in self["banner"]["helmets"].items() if side in sides), reverse=True)
+
 
 def _scale_value(v, factor):
     """Recursively scale pixel values by *factor*."""

@@ -76,7 +76,7 @@ class App:
         ttk.Entry(f, textvariable=self.v_path).grid(row=r, column=1, sticky="ew", padx=6)
         ttk.Button(f, text="Browse...", command=self.browse).grid(row=r, column=2, sticky="ew")
         r += 1
-        ttk.Label(f, text="For first-person spectator recordings of 6v6 rooms, GameLoop at 1920x1080.",
+        ttk.Label(f, text="For first-person spectator recordings of rooms up to 8v8, GameLoop at 1920x1080.",
                   foreground="#555").grid(row=r, column=1, columnspan=2, sticky="w", padx=6)
         r += 1
         ttk.Label(f, text="Detail").grid(row=r, column=0, sticky="nw", pady=3)
@@ -95,7 +95,7 @@ class App:
         ttk.Button(side, text="Load list...", command=self.load_names).pack(fill="x")
         self.t_names.insert("1.0", "\n".join(process.default_roster()))
         r += 1
-        ttk.Label(f, text="One name per line, spelled as in the game (all 12 players). Names read from the "
+        ttk.Label(f, text="One name per line, spelled as in the game (every player). Names read from the "
                           "kill feed are matched against this list only.", foreground="#555").grid(row=r, column=1, columnspan=2,
                                                                                 sticky="w", padx=6)
         r += 1
