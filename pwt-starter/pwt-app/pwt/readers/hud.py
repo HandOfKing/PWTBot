@@ -96,12 +96,14 @@ class HudCheck:
         return "\n".join(lines)
 
 
-def check(profile, path, samples=40, team_size=6, roster=()):
+def check(profile, path, samples=40, team_size=6, roster=(), transform=None):
     """Sample *samples* frames spread across the clip and test the landmarks.
 
     *roster* enables the names_resolve check, which is the only one that can
     catch a wrong profile at the correct resolution. Without it the check still
     runs, but says so in its report rather than implying a clean pass.
+    *transform* is the placement shift the replay will apply (capture/placement.py):
+    the check tests the frames the readers will see, with the same thresholds.
     """
     from .counters import CounterReader
     from .feed import FeedReader
@@ -127,6 +129,8 @@ def check(profile, path, samples=40, team_size=6, roster=()):
         ok, frame = cap.read()
         if not ok:
             continue
+        if transform is not None:
+            frame = transform(frame)
         n += 1
         try:
             if counters.banner_visible(frame):

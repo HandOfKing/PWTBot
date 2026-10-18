@@ -17,6 +17,19 @@
     1828,
     1025
   ],
+  "placement": {
+    "anchor_template": "layout_anchor.png",
+    "anchor_at": [
+      100,
+      55
+    ],
+    "min_score": 0.75,
+    "min_frames": 3,
+    "rect_std_min": 12,
+    "rect_min_px": 150,
+    "rect_tol_px": 4,
+    "note": "capture/placement.py: the 'Remaining' label (86x37, median of 12 Video_Project_9 frames) found on sampled frames gives the shift that puts a recording's HUD on these coordinates. Measured 2026-10-17: true matches 0.82-0.98, best false match 0.54; on a frame scaled by 0.97-1.03 the label still scores 0.69-0.77, so a shift is taken only when the measured game picture (per-pixel std > rect_std_min on > rect_min_px pixels of a row/column) is game_area's size at the shifted place within rect_tol_px (compression bleeds 1-2 px: 2026-10-17 00-54-26 measures 1729x974 at 0,0). VP9, VP13 and 2026-10-01 at +0,+0 (no shift); 2026-10-17 00-54-26 at -100,-53 on 11 of 12 frames (game captured alone at the frame's corner, same size)."
+  },
   "feed": {
     "box": [
       106,

@@ -60,6 +60,11 @@ Afterwards: `python -m pwt list`, `show 1`, `export --match 1 match.xlsx`, `play
   every row is on screen for a second or two. That board covers the whole match.
 - 1920x1080. Another resolution or emulator layout is refused by the layout check, not
   guessed at.
+- The game picture inside the frame must be 1728x972, its native size: do not resize or "fit
+  to screen" the GameLoop source in OBS, and keep the OBS canvas at 1920x1080. Where the
+  picture sits does not matter as long as all of it is inside the frame and it stays put for
+  the whole recording (the whole GameLoop window, or the game alone in the top-left corner):
+  the run finds it and shifts it into place, and the run log says so (DECISIONS M15).
 
 ## Time
 
@@ -115,7 +120,10 @@ touch). To add shapes from a clip whose values you know:
 ## When it goes wrong
 
 **"The layout does not fit this recording"** — not a 1080p first-person spectator recording of
-the expected HUD. Do not force it unless you know why.
+the expected HUD. Do not force it unless you know why. The first FAIL line says why when the
+game picture was found but cannot be used: resized (set the OBS source back to its native size:
+right-click it, Transform, Reset Transform), cut off by the frame, a canvas other than
+1920x1080, or moved during the recording. Fix that in OBS and record again.
 
 **Names consistently missing for one player** — they are not in the names list, or spelled
 differently. Check the "on the scoreboard but not in the player list" line in the log.

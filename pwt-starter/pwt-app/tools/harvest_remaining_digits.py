@@ -22,6 +22,7 @@ import cv2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pwt import profiles                                    # noqa: E402
+from pwt.capture import placement                           # noqa: E402
 from pwt.readers.counters import CounterReader               # noqa: E402
 
 
@@ -30,7 +31,7 @@ def load_truth(path):
         return [(float(r["start_s"]), float(r["end_s"]), int(r["value"])) for r in csv.DictReader(fh)]
 
 
-def frames(video, truth, step=1):
+def frames(video, truth, step=1, tf=None):
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     for lo, hi, v in truth:
@@ -40,15 +41,15 @@ def frames(video, truth, step=1):
             ok, f = cap.read()
             if not ok: break
             if (i - int(round(lo * fps))) % step == 0:
-                yield i / fps, v, f
+                yield i / fps, v, (tf(f) if tf else f)
             i += 1
 
 
-def check(reader, video, truth, box):
+def check(reader, video, truth, box, tf=None):
     x0, y0, x1, y1 = box
     n = right = blank = 0
     wrong = []
-    for t, v, f in frames(video, truth):
+    for t, v, f in frames(video, truth, tf=tf):
         got, _ = reader.read(f[y0:y1, x0:x1])
         n += 1
         if got is None: blank += 1
@@ -69,11 +70,15 @@ def main(argv=None):
     reader = CounterReader(prof).remaining
     truth = load_truth(a.truth)
     box = prof["remaining_box"]
+    try:
+        tf = placement.transform_for(prof, a.video)      # game picture elsewhere in the frame
+    except ValueError as e:
+        sys.exit(f"{a.video}: {e}")
     x0, y0, x1, y1 = box
 
     if not a.check_only:
         cands = {}
-        for t, v, f in frames(a.video, [r for r in truth if r[0] < a.harvest_before], step=3):
+        for t, v, f in frames(a.video, [r for r in truth if r[0] < a.harvest_before], step=3, tf=tf):
             if t >= a.harvest_before: continue
             cell = f[y0:y1, x0:x1]
             got, sc = reader.read(cell)
@@ -101,11 +106,11 @@ def main(argv=None):
                 added += 1
                 print(f"  added {ch}_{k}.png from {t:.2f}s (was {d} at {s:.2f})")
 
-    n, right, blank, wrong = check(reader, a.video, truth, box)
+    n, right, blank, wrong = check(reader, a.video, truth, box, tf)
     held = [r for r in truth if r[0] >= a.harvest_before]
     print(f"all intervals: {n} frames  correct {right}  blank {blank}  WRONG {len(wrong)}")
     if held and a.harvest_before != float("inf"):
-        hn, hr, hb, hw = check(reader, a.video, held, box)
+        hn, hr, hb, hw = check(reader, a.video, held, box, tf)
         print(f"held out (from {a.harvest_before:g}s): {hn} frames  correct {hr}  blank {hb}  WRONG {len(hw)}")
     for w in wrong[:20]: print("  WRONG", w)
     return 1 if wrong else 0

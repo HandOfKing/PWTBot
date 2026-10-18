@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pwt import profiles
+from pwt.capture import placement
 from pwt.readers.feed import FeedReader
 from pwt.readers.chars import CharReader, _label
 from pwt.readers import names
@@ -117,6 +118,11 @@ def main():
     feed = FeedReader(prof)
     reader = CharReader(a.out)
 
+    try:
+        tf = placement.transform_for(prof, a.clip)       # game picture elsewhere in the frame
+    except ValueError as e:
+        print(f"{a.clip}: {e}")
+        return 1
     cap = cv2.VideoCapture(a.clip)
     if not cap.isOpened():
         print(f"Cannot open {a.clip}")
@@ -143,6 +149,8 @@ def main():
         ok, frame = cap.retrieve()
         if not ok:
             break
+        if tf:
+            frame = tf(frame)
         t = frame_no / vid_fps
 
         rows = feed.rows(frame)

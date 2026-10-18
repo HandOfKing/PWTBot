@@ -3,7 +3,9 @@
 The desktop app (app/main.py) calls `process()` on a worker thread. The steps
 are the CLI's (`python -m pwt replay`), in the same order:
 
-  1. layout check (ARCHITECTURE stage 0) -- refuse a profile that does not fit
+  1. layout check (ARCHITECTURE stage 0) -- refuse a profile that does not fit; a recording
+     whose game picture sits elsewhere in the frame, same size, is shifted back first
+     (capture/placement.py)
   2. replay through the engine, reporting progress, stoppable
   3. write ONE Excel workbook next to the recording (Scoreboard, Highlights, Events, Run log)
 
@@ -125,6 +127,7 @@ def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, t
     """
     from .engine.engine import Engine
     from .engine.runner import run
+    from .capture import placement
     from .capture.sources import FileReplaySource
     from .readers import hud, names
 
@@ -151,7 +154,13 @@ def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, t
     log(f"PWT  {dt.datetime.now():%Y-%m-%d %H:%M}  {path.name}  {w}x{h}  {duration / 60:.1f} min")
     log(f"PWT {__version__}  layout {profile_name}  sampling {fps:g} fps  team size {team_size}  "
         f"{len(roster)} names")
-    chk = hud.check(prof, path, team_size=team_size, roster=roster)
+    place = placement.find(prof, path)          # same game picture elsewhere in the frame -> shift it back
+    chk = hud.check(prof, path, team_size=team_size, roster=roster, transform=place.transform)
+    if place.problem:                           # HUD elsewhere and it cannot be shifted back: refuse
+        chk.blockers.insert(0, place.problem)
+        chk.ok = False
+    if place.note and (place.moved or not chk.ok):
+        chk.notes.insert(0, place.note)
     log(chk.report())
     if not chk.ok and not force:
         return Result(ok=False, layout_ok=False, layout_report=chk.report())
@@ -159,7 +168,7 @@ def process(path, *, profile_name=DEFAULT_PROFILE, roster=(), fps=DEFAULT_FPS, t
         log("Layout check failed and the run was forced: treat every row as suspect.")
 
     names.reset_stats()
-    src = FileReplaySource(path, fps=fps)
+    src = FileReplaySource(path, fps=fps, transform=place.transform)
     eng = Engine(prof, conn, roster=roster, source_file=path.name, team_size=team_size,
                  recorded_at=db.recorded_at_from_file(path), log=log, data_dir=db.db_folder(conn))
     last = [0.0]

@@ -74,6 +74,14 @@ Remaining digits, unreadable frames while the HUD is live (frames in the dim are
 22-55-47 315 -> 18 of 15194; 20-27-36 1720 -> 72 of 15944 (a match no template was harvested from);
 VP13 49 -> 2 of 3978. WRONG: 0 in all three.
 
+Match `2026-10-17 00-54-26` (25 rounds, 15 players: 8 blue + 7 red, 23.976 fps, 39.6 min). OBS captured the
+game alone at the frame's corner: refused by the layout check until the placement shift (M15). Truth: the
+end-of-match board read by the run itself (15/15 rows; one Knock Outs cell blank, InnocentDevil).
+
+| Date | App / commit | fps | Rounds | Elims counted | Named | Credited | NO_FEED_ROW | UNRESOLVED | NO_DROP | Notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 10-17 | 9e31840 + placement (first version) | 12 | 25 / 25 | **245 = board** | 217 | 226 / 245 | 16 | 17 (12 kill, 5 knock) | 51 | Layout check without the shift: FAIL (banner 0%, Remaining 0%); with it: PASS (banner 79%, Remaining 92%, helmets 90%, names 28/28). Counted = Remaining drops in every one of the 25 rounds. Knock rows 307 (302 both names, 307 with a weapon); credited knocks 304 vs the board's Knock Outs >= 300. NO_DROP: 37 rows with no name read at all, 9 with both. Near-miss: digit 1 rejected for about 4.1 s. 8v7: no helmet positions for 7-8 a side, so no helmet team (as 20-27-36). 1322 s wall. Run with the first version of `placement.py`; the final version finds the same shift (+100,+53, 11 of 12 frames, measured 1729x974), so the frames read are identical. |
+
 ## Spot clips
 
 | Date | Commit | Clip | Measure | Result | Notes |
@@ -116,6 +124,15 @@ Definition of done on the final tree (pwt-verifier, scratch data folder):
 | 10-13 | VP9 knock rows with a weapon, fps 4 / 12 / 24 | — | 15/15, 15/15, 15/17 | same as 10-11 |
 | 10-13 | VP9 workbook sheet order (fps 4 / 12 / 24 / 12 repeat) | Scoreboard, Highlights, Players, Head to head, Events, Run log | exactly that, in all four workbooks | 12 fps: Players sheet 17 rows x 6 cols, Head to head 23 rows x 5 cols |
 | 10-13 | `app/main.py --selftest` | PASS | PASS (8 checks ok) | headless, PWT 0.2.0; scratch PWT_DATA_DIR and output file |
+| 10-17 | `tests/run_all.py` (tree dirty on 9e31840, placement shift M15) | all pass | 68 ok, 0 skipped, 0 FAIL | 8 new test_placement tests (was 60); scratch PWT_DATA_DIR |
+| 10-17 | VP9 eliminations, fps 4 / 12 / 24 (Events sheet of `- PWT.xlsx`, Type kill+eliminated_knocked, Flag != NO_DROP; tree dirty on 9e31840, placement shift M15) | 14 / 14 / 14 | 14 / 14 / 14 | 12 fps run twice: True time (s), Type, Killer, Victim, Weapon, Flag identical over 30 rows; same as 10-13; roster = all 19 names of docs/roster.md |
+| 10-17 | VP9 eliminations with both names, fps 4 / 12 / 24 (tree dirty on 9e31840, placement shift M15) | — | 13 / 13 / 13 of 14 | feed rows with both names: 28/29, 28/30, 31/34; KG696969 in 3 / 3 / 4 elimination rows (8 / 8 / 10 rows of any type); same as 10-13 |
+| 10-17 | VP13 Remaining digits (`--check-only`; tree dirty on 9e31840, placement shift M15) | 0 WRONG | 0 WRONG; 3976 correct, 2 blank of 3978 | same as 10-13 |
+| 10-17 | Unflagged self-kills (VP9, 4 / 12 / 24; tree dirty on 9e31840, placement shift M15) | 0 | 0 / 0 / 0 | |
+| 10-17 | VP9 knock rows with a weapon, fps 4 / 12 / 24 (tree dirty on 9e31840, placement shift M15) | — | 15/15, 15/15, 15/17 | same as 10-13 |
+| 10-17 | VP9 workbook sheet order (fps 4 / 12 / 24 / 12 repeat; tree dirty on 9e31840, placement shift M15) | Scoreboard, Highlights, Players, Head to head, Events, Run log | exactly that, in all four workbooks | 12 fps: Players sheet 17 rows x 6 cols, Head to head 23 rows x 5 cols; same as 10-13 |
+| 10-17 | VP9 placement: "shifted by" note in the Run log sheet (fps 4 / 12 / 24 / 12 repeat; tree dirty on 9e31840, placement shift M15) | no note (reference recording sits at +0,+0) | no "shifted by" text in any of the four Run logs; "HUD check: PASS ... footage 1920x1080 profile measured at 1920x1080" in all four | reference placement takes the old path; every number above equals the 10-13 rows |
+| 10-17 | `app/main.py --selftest` (tree dirty on 9e31840, placement shift M15) | PASS | PASS (8 checks ok) | headless, PWT 0.2.0; scratch PWT_DATA_DIR and output file |
 
 Four full matches at 12 fps with the final code (`Output/final3`). Counted eliminations = Remaining drops in
 every round of every match; no phantom rounds; no unflagged self-kills. "Credited" = to a player by the knocker

@@ -8,8 +8,9 @@ class FileReplaySource:
     """A recording, resampled to `fps`. t = sample index / fps. Never drops frames."""
     live = False
 
-    def __init__(self, path, fps=12.0):
+    def __init__(self, path, fps=12.0, transform=None):
         self.path, self.fps = Path(path), float(fps)
+        self.transform = transform                              # capture/placement.py shift, or None
         if not self.path.exists(): raise FileNotFoundError(self.path)
 
     def frames(self):
@@ -22,7 +23,7 @@ class FileReplaySource:
                 if i / src_fps + 1e-6 >= k / self.fps:          # first source frame at/after the sample time
                     ok, frame = cap.retrieve()
                     if not ok: break
-                    yield k / self.fps, frame
+                    yield k / self.fps, (self.transform(frame) if self.transform else frame)
                     k += 1
                 i += 1
         finally:

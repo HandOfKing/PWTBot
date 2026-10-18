@@ -37,6 +37,10 @@ Use it
      part done so far is kept.
 
 When recording
+  In OBS keep the canvas at 1920x1080 and the GameLoop source at its native size
+  (right-click it, Transform, Reset Transform): never resized or "fit to screen".
+  Where the game sits in the frame does not matter, as long as all of it is in
+  the frame and it does not move while you record.
   At the end of the match, keep recording on the final scoreboard and scroll it
   slowly from the top to the bottom (and back up) so every player's row is on
   screen for a second or two. The app reads Eliminations, Assists, Damage

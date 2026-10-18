@@ -20,6 +20,7 @@ import cv2, numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from pwt import profiles                                    # noqa: E402
+from pwt.capture import placement                           # noqa: E402
 from pwt.readers.counters import CounterReader               # noqa: E402
 from pwt.readers.screens import ScreenReader                  # noqa: E402
 from pwt.readers.digits import _norm                          # noqa: E402
@@ -31,13 +32,13 @@ def load_truth(path):
     return {r["player"]: {k: int(v) for k, v in r.items() if k != "player" and v != ""} for r in rows}
 
 
-def frames(video, times):
+def frames(video, times, tf=None):
     cap = cv2.VideoCapture(str(video))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     for t in times:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(round(t * fps)))
         ok, f = cap.read()
-        if ok: yield t, f
+        if ok: yield t, (tf(f) if tf else f)
     cap.release()
 
 
@@ -50,11 +51,11 @@ def cells(S, frame, truth):
                     yield r["name"], col, truth[r["name"]][col], frame[r["y"] - 20:r["y"] + 20, a:b]
 
 
-def check(S, video, truth, step=0.5):
+def check(S, video, truth, step=0.5, tf=None):
     dur = cv2.VideoCapture(str(video)).get(cv2.CAP_PROP_FRAME_COUNT) / 30.0
     ok = blank = wrong = 0
     wrongs, seen = [], set()
-    for t, f in frames(video, np.arange(0, dur, step)):
+    for t, f in frames(video, np.arange(0, dur, step), tf):
         for name, col, v, cell in cells(S, f, truth):
             got = S.digits.read(cell)[0]
             seen.add((name, col))
@@ -65,10 +66,10 @@ def check(S, video, truth, step=0.5):
     return ok, blank, wrong, wrongs, len(seen)
 
 
-def harvest(S, video, truth, at, per_digit):
+def harvest(S, video, truth, at, per_digit, tf=None):
     D = S.digits
     cands = {}
-    for t, f in frames(video, at):
+    for t, f in frames(video, at, tf):
         for name, col, v, cell in cells(S, f, truth):
             gs = D.glyphs(cell)
             if len(gs) != len(str(v)): continue
@@ -103,9 +104,13 @@ def main():
     P = profiles.load(a.profile)
     S = ScreenReader(P, CounterReader(P))
     truth = load_truth(a.truth)
+    try:
+        tf = placement.transform_for(P, a.video)         # game picture elsewhere in the frame
+    except ValueError as e:
+        sys.exit(f"{a.video}: {e}")
     if not a.check_only:
-        print("added:", harvest(S, a.video, truth, [float(x) for x in a.at.split(",")], a.per_digit))
-    ok, blank, wrong, wrongs, n = check(S, a.video, truth)
+        print("added:", harvest(S, a.video, truth, [float(x) for x in a.at.split(",")], a.per_digit, tf))
+    ok, blank, wrong, wrongs, n = check(S, a.video, truth, tf=tf)
     print(f"{n} distinct cells seen; reads: {ok} correct, {blank} blank, {wrong} WRONG")
     for w in wrongs[:20]: print("  ", w)
     sys.exit(1 if wrong else 0)
