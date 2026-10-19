@@ -33,8 +33,11 @@ input sent to the game, folder watching, reading game memory.
 The live-capture code (`LiveScreenSource`, `pwt live`) was deleted on 2026-10-07.
 `FileReplaySource` is the only source.
 
-**Target footage — the one layout:** first-person **spectator**, round-based, 6v6,
-GameLoop 1920x1080 (`pwt/profiles/gameloop-spectator-6v6-1080p.json`). The 2v2
+**Target footage — the one layout:** first-person **spectator**, round-based, up to
+8 players a side and uneven teams too (8v7, 6v7, ...; D17, Chirag 2026-10-18), GameLoop
+1920x1080 (`pwt/profiles/gameloop-spectator-6v6-1080p.json`; the name is historical).
+Banner helmets are measured per side and per count; a count never seen in a recording
+has no positions and its rounds get no helmet team (M17). The 2v2
 "windowed" profile, its fixtures and tests were deleted on 2026-10-07 (one
 version). A second "aerial arena TDM" mode was investigated and dropped.
 
